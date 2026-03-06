@@ -1,7 +1,7 @@
 import 'dart:collection';
 
 import 'package:kigenkanri/models/task.dart';
-import 'package:kigenkanri/utils/deadline_utils.dart';
+import 'package:kigenkanri/utils/task_sync_utils.dart';
 import 'package:uuid/uuid.dart';
 
 class TaskService {
@@ -39,6 +39,8 @@ class TaskService {
       done: false,
       createdAt: now,
       updatedAt: now,
+      isDeleted: false,
+      deletedAt: null,
     );
     _tasks.add(task);
     sortTasks();
@@ -64,17 +66,6 @@ class TaskService {
   }
 
   int _compareTask(Task left, Task right) {
-    if (left.done != right.done) {
-      return left.done ? 1 : -1;
-    }
-
-    final dueDateCompare = parseStorageDate(
-      left.dueDate,
-    ).compareTo(parseStorageDate(right.dueDate));
-    if (dueDateCompare != 0) {
-      return dueDateCompare;
-    }
-
-    return left.createdAt.compareTo(right.createdAt);
+    return compareTaskForDisplay(left, right);
   }
 }

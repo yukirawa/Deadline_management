@@ -1,173 +1,609 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:kigenkanri/models/task.dart';
+import 'package:kigenkanri/models/task_type.dart';
+import 'package:kigenkanri/models/user_settings.dart';
 import 'package:kigenkanri/screens/add_task_page.dart';
-import 'package:kigenkanri/services/task_service.dart';
-import 'package:kigenkanri/services/task_storage_service.dart';
+import 'package:kigenkanri/services/auth_service.dart';
+import 'package:kigenkanri/services/notification_service.dart';
+import 'package:kigenkanri/services/task_repository.dart';
+import 'package:kigenkanri/utils/task_filter_utils.dart';
 import 'package:kigenkanri/widgets/task_card.dart';
 
-class TaskListPage extends StatefulWidget {
-  const TaskListPage({super.key});
+class TaskHomePage extends StatefulWidget {
+  const TaskHomePage({
+    super.key,
+    required this.user,
+    required this.authService,
+    required this.taskRepository,
+    required this.notificationService,
+  });
+
+  final User user;
+  final AuthService authService;
+  final TaskRepository taskRepository;
+  final NotificationService notificationService;
 
   @override
-  State<TaskListPage> createState() => _TaskListPageState();
+  State<TaskHomePage> createState() => _TaskHomePageState();
 }
 
-class _TaskListPageState extends State<TaskListPage> {
-  final TaskStorageService _taskStorageService = TaskStorageService();
-  late final TaskService _taskService;
+class _TaskHomePageState extends State<TaskHomePage> {
+  final TextEditingController _queryController = TextEditingController();
 
-  bool _isLoading = true;
-  String? _errorMessage;
+  late Future<void> _prepareFuture;
+  int _tabIndex = 0;
+  String _query = '';
+  String? _typeFilter;
+  TaskDoneFilter _doneFilter = TaskDoneFilter.all;
 
   @override
   void initState() {
     super.initState();
-    _taskService = TaskService();
-    _loadTasks();
-  }
-
-  Future<void> _loadTasks() async {
-    try {
-      final tasks = await _taskStorageService.loadTasks();
-      if (!mounted) {
-        return;
-      }
+    _prepareFuture = _prepare();
+    _queryController.addListener(() {
       setState(() {
-        _taskService.replaceAll(tasks);
-        _isLoading = false;
-        _errorMessage = null;
+        _query = _queryController.text;
       });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'タスクの読み込みに失敗しました。';
-      });
-    }
+    });
   }
 
-  Future<void> _saveTasks() async {
-    await _taskStorageService.saveTasks(_taskService.tasks);
+  @override
+  void dispose() {
+    _queryController.dispose();
+    widget.notificationService.unbindUser();
+    super.dispose();
   }
 
-  Future<void> _openAddTaskPage() async {
-    final input = await Navigator.of(context).push<AddTaskInput>(
-      MaterialPageRoute(builder: (_) => const AddTaskPage()),
+  Future<void> _prepare() async {
+    final uid = widget.user.uid;
+    await widget.taskRepository.prepareForUser(uid);
+    await widget.notificationService.bindUser(uid);
+  }
+
+  Future<void> _openTaskForm({Task? task}) async {
+    final input = await Navigator.of(context).push<TaskFormResult>(
+      MaterialPageRoute(builder: (_) => TaskFormPage(initialTask: task)),
     );
-
     if (!mounted || input == null) {
       return;
     }
 
-    setState(() {
-      _taskService.addTask(
-        subject: input.subject,
-        type: input.type,
-        title: input.title,
-        dueDate: input.dueDate,
-      );
-    });
-
     try {
-      await _saveTasks();
-    } catch (_) {
-      if (!mounted) {
-        return;
+      if (task == null) {
+        await widget.taskRepository.createTask(
+          uid: widget.user.uid,
+          subject: input.subject,
+          type: input.type,
+          title: input.title,
+          dueDate: input.dueDate,
+        );
+      } else {
+        await widget.taskRepository.updateTask(
+          uid: widget.user.uid,
+          original: task,
+          subject: input.subject,
+          type: input.type,
+          title: input.title,
+          dueDate: input.dueDate,
+        );
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('保存に失敗しました。再度お試しください。')));
+    } catch (error) {
+      _showError('保存に失敗しました: $error');
     }
   }
 
   Future<void> _toggleDone(Task task, bool done) async {
-    setState(() {
-      _taskService.toggleDone(taskId: task.id, done: done);
-    });
+    try {
+      await widget.taskRepository.toggleDone(
+        uid: widget.user.uid,
+        task: task,
+        done: done,
+      );
+    } catch (error) {
+      _showError('更新に失敗しました: $error');
+    }
+  }
+
+  Future<void> _softDelete(Task task) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('タスク削除'),
+          content: const Text('このタスクを削除しますか？（ごみ箱から復元できます）'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('削除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) {
+      return;
+    }
 
     try {
-      await _saveTasks();
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('更新の保存に失敗しました。再度お試しください。')));
+      await widget.taskRepository.softDeleteTask(
+        uid: widget.user.uid,
+        task: task,
+      );
+    } catch (error) {
+      _showError('削除に失敗しました: $error');
     }
+  }
+
+  Future<void> _restore(Task task) async {
+    try {
+      await widget.taskRepository.restoreTask(uid: widget.user.uid, task: task);
+    } catch (error) {
+      _showError('復元に失敗しました: $error');
+    }
+  }
+
+  Future<void> _hardDelete(Task task) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('完全削除'),
+          content: const Text('このタスクを完全に削除します。元に戻せません。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('完全削除'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await widget.taskRepository.hardDeleteTask(
+        uid: widget.user.uid,
+        task: task,
+      );
+    } catch (error) {
+      _showError('完全削除に失敗しました: $error');
+    }
+  }
+
+  void _showError(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final tasks = _taskService.tasks;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('締切レーダー'),
-        actions: [
-          IconButton(
-            onPressed: _openAddTaskPage,
-            icon: const Icon(Icons.add),
-            tooltip: '追加',
-          ),
-        ],
-      ),
-      body: Builder(
-        builder: (context) {
-          if (_isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (_errorMessage != null) {
-            return Center(
+    return FutureBuilder<void>(
+      future: _prepareFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('初期化エラー')),
+            body: Center(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_errorMessage!),
+                    Text('初期化に失敗しました: ${snapshot.error}'),
                     const SizedBox(height: 12),
                     FilledButton(
                       onPressed: () {
                         setState(() {
-                          _isLoading = true;
-                          _errorMessage = null;
+                          _prepareFuture = _prepare();
                         });
-                        _loadTasks();
                       },
-                      child: const Text('再読み込み'),
+                      child: const Text('再試行'),
                     ),
                   ],
                 ),
               ),
-            );
-          }
+            ),
+          );
+        }
 
-          if (tasks.isEmpty) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('タスクはまだありません。右上の＋から追加してください。'),
+        return StreamBuilder<List<Task>>(
+          stream: widget.taskRepository.watchAllTasks(widget.user.uid),
+          builder: (context, taskSnapshot) {
+            if (taskSnapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final tasks = taskSnapshot.data ?? const <Task>[];
+            final activeTasks = tasks.where((task) => !task.isDeleted).toList();
+            final deletedTasks = tasks.where((task) => task.isDeleted).toList();
+            final filteredTasks = filterTasks(
+              tasks: activeTasks,
+              query: _query,
+              type: _typeFilter,
+              doneFilter: _doneFilter,
+            );
+
+            return Scaffold(
+              appBar: AppBar(
+                title: Text(_titleForTab),
+                actions: [
+                  if (_tabIndex == 0)
+                    IconButton(
+                      onPressed: () => _openTaskForm(),
+                      icon: const Icon(Icons.add),
+                      tooltip: '追加',
+                    ),
+                ],
+              ),
+              body: IndexedStack(
+                index: _tabIndex,
+                children: [
+                  _TaskListTab(
+                    queryController: _queryController,
+                    selectedType: _typeFilter,
+                    doneFilter: _doneFilter,
+                    onTypeChanged: (value) {
+                      setState(() {
+                        _typeFilter = value;
+                      });
+                    },
+                    onDoneFilterChanged: (value) {
+                      setState(() {
+                        _doneFilter = value;
+                      });
+                    },
+                    tasks: filteredTasks,
+                    onDoneChanged: _toggleDone,
+                    onEdit: (task) => _openTaskForm(task: task),
+                    onDelete: _softDelete,
+                  ),
+                  _TrashTab(
+                    tasks: deletedTasks,
+                    onRestore: _restore,
+                    onHardDelete: _hardDelete,
+                  ),
+                  _SettingsTab(
+                    user: widget.user,
+                    taskRepository: widget.taskRepository,
+                    notificationService: widget.notificationService,
+                    authService: widget.authService,
+                    onError: _showError,
+                  ),
+                ],
+              ),
+              bottomNavigationBar: NavigationBar(
+                selectedIndex: _tabIndex,
+                onDestinationSelected: (index) {
+                  setState(() {
+                    _tabIndex = index;
+                  });
+                },
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.list_alt),
+                    label: 'タスク',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.delete_outline),
+                    label: 'ごみ箱',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.settings),
+                    label: '設定',
+                  ),
+                ],
               ),
             );
-          }
+          },
+        );
+      },
+    );
+  }
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(12),
-            itemCount: tasks.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final task = tasks[index];
-              return TaskCard(
-                task: task,
-                onDoneChanged: (done) => _toggleDone(task, done),
-              );
-            },
-          );
-        },
-      ),
+  String get _titleForTab {
+    switch (_tabIndex) {
+      case 1:
+        return 'ごみ箱';
+      case 2:
+        return '設定';
+      default:
+        return '締切レーダー';
+    }
+  }
+}
+
+class _TaskListTab extends StatelessWidget {
+  const _TaskListTab({
+    required this.queryController,
+    required this.selectedType,
+    required this.doneFilter,
+    required this.onTypeChanged,
+    required this.onDoneFilterChanged,
+    required this.tasks,
+    required this.onDoneChanged,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final TextEditingController queryController;
+  final String? selectedType;
+  final TaskDoneFilter doneFilter;
+  final ValueChanged<String?> onTypeChanged;
+  final ValueChanged<TaskDoneFilter> onDoneFilterChanged;
+  final List<Task> tasks;
+  final Future<void> Function(Task task, bool done) onDoneChanged;
+  final Future<void> Function(Task task) onEdit;
+  final Future<void> Function(Task task) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: queryController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      labelText: '検索',
+                      hintText: '科目または内容',
+                      prefixIcon: Icon(Icons.search),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String?>(
+                          initialValue: selectedType,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: '種別',
+                          ),
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Text('すべて'),
+                            ),
+                            ...TaskType.values.map(
+                              (type) => DropdownMenuItem<String?>(
+                                value: type.value,
+                                child: Text(type.label),
+                              ),
+                            ),
+                          ],
+                          onChanged: onTypeChanged,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<TaskDoneFilter>(
+                          initialValue: doneFilter,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            labelText: '状態',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: TaskDoneFilter.all,
+                              child: Text('すべて'),
+                            ),
+                            DropdownMenuItem(
+                              value: TaskDoneFilter.open,
+                              child: Text('未完了'),
+                            ),
+                            DropdownMenuItem(
+                              value: TaskDoneFilter.done,
+                              child: Text('完了'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            onDoneFilterChanged(value);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: tasks.isEmpty
+              ? const Center(child: Text('対象のタスクはありません'))
+              : ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: tasks.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final task = tasks[index];
+                    return TaskCard(
+                      task: task,
+                      onDoneChanged: (done) => onDoneChanged(task, done),
+                      onEdit: () => onEdit(task),
+                      onDelete: () => onDelete(task),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrashTab extends StatelessWidget {
+  const _TrashTab({
+    required this.tasks,
+    required this.onRestore,
+    required this.onHardDelete,
+  });
+
+  final List<Task> tasks;
+  final Future<void> Function(Task task) onRestore;
+  final Future<void> Function(Task task) onHardDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tasks.isEmpty) {
+      return const Center(child: Text('ごみ箱は空です'));
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: tasks.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final task = tasks[index];
+        return TaskCard(
+          task: task,
+          showCheckbox: false,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                onPressed: () => onRestore(task),
+                icon: const Icon(Icons.restore_from_trash),
+                tooltip: '復元',
+              ),
+              IconButton(
+                onPressed: () => onHardDelete(task),
+                icon: const Icon(Icons.delete_forever),
+                tooltip: '完全削除',
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SettingsTab extends StatelessWidget {
+  const _SettingsTab({
+    required this.user,
+    required this.taskRepository,
+    required this.notificationService,
+    required this.authService,
+    required this.onError,
+  });
+
+  final User user;
+  final TaskRepository taskRepository;
+  final NotificationService notificationService;
+  final AuthService authService;
+  final ValueChanged<String> onError;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<UserSettings>(
+      stream: taskRepository.watchUserSettings(user.uid),
+      builder: (context, snapshot) {
+        final settings = snapshot.data ?? UserSettings.defaults();
+        final timezone = supportedTimezones.contains(settings.timezone)
+            ? settings.timezone
+            : UserSettings.defaultTimezone;
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.account_circle),
+                title: Text(user.displayName ?? 'Googleユーザー'),
+                subtitle: Text(user.email ?? ''),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              value: settings.notificationsEnabled,
+              title: const Text('通知を有効にする'),
+              subtitle: const Text('前日19:00 / 当日07:00 に要約通知'),
+              onChanged: (enabled) async {
+                try {
+                  await notificationService.setNotificationsEnabled(
+                    uid: user.uid,
+                    enabled: enabled,
+                  );
+                } catch (error) {
+                  onError('通知設定に失敗しました: $error');
+                }
+              },
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: timezone,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: '通知タイムゾーン',
+              ),
+              items: supportedTimezones
+                  .map(
+                    (tz) =>
+                        DropdownMenuItem<String>(value: tz, child: Text(tz)),
+                  )
+                  .toList(),
+              onChanged: (value) async {
+                if (value == null) {
+                  return;
+                }
+                try {
+                  await notificationService.updateTimezone(
+                    uid: user.uid,
+                    timezone: value,
+                  );
+                } catch (error) {
+                  onError('タイムゾーン更新に失敗しました: $error');
+                }
+              },
+            ),
+            const SizedBox(height: 20),
+            FilledButton.tonalIcon(
+              onPressed: () async {
+                try {
+                  await authService.signOut();
+                } catch (error) {
+                  onError('ログアウトに失敗しました: $error');
+                }
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text('ログアウト'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

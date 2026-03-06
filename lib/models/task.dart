@@ -8,6 +8,8 @@ class Task {
     required this.done,
     required this.createdAt,
     required this.updatedAt,
+    required this.isDeleted,
+    required this.deletedAt,
   });
 
   final String id;
@@ -18,6 +20,8 @@ class Task {
   final bool done;
   final int createdAt;
   final int updatedAt;
+  final bool isDeleted;
+  final int? deletedAt;
 
   Task copyWith({
     String? id,
@@ -28,6 +32,9 @@ class Task {
     bool? done,
     int? createdAt,
     int? updatedAt,
+    bool? isDeleted,
+    int? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return Task(
       id: id ?? this.id,
@@ -38,6 +45,8 @@ class Task {
       done: done ?? this.done,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      isDeleted: isDeleted ?? this.isDeleted,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
@@ -51,6 +60,8 @@ class Task {
       'done': done,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
+      'isDeleted': isDeleted,
+      'deletedAt': deletedAt,
     };
   }
 
@@ -64,6 +75,40 @@ class Task {
       done: (json['done'] as bool?) ?? false,
       createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
       updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
+      isDeleted: (json['isDeleted'] as bool?) ?? false,
+      deletedAt: (json['deletedAt'] as num?)?.toInt(),
     );
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    return other is Task &&
+        other.id == id &&
+        other.subject == subject &&
+        other.type == type &&
+        other.title == title &&
+        other.dueDate == dueDate &&
+        other.done == done &&
+        other.createdAt == createdAt &&
+        other.updatedAt == updatedAt &&
+        other.isDeleted == isDeleted &&
+        other.deletedAt == deletedAt;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    subject,
+    type,
+    title,
+    dueDate,
+    done,
+    createdAt,
+    updatedAt,
+    isDeleted,
+    deletedAt,
+  );
 }

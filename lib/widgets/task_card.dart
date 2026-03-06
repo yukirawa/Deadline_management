@@ -4,10 +4,22 @@ import 'package:kigenkanri/models/task_type.dart';
 import 'package:kigenkanri/utils/deadline_utils.dart';
 
 class TaskCard extends StatelessWidget {
-  const TaskCard({super.key, required this.task, required this.onDoneChanged});
+  const TaskCard({
+    super.key,
+    required this.task,
+    this.onDoneChanged,
+    this.onEdit,
+    this.onDelete,
+    this.trailing,
+    this.showCheckbox = true,
+  });
 
   final Task task;
-  final ValueChanged<bool> onDoneChanged;
+  final ValueChanged<bool>? onDoneChanged;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+  final Widget? trailing;
+  final bool showCheckbox;
 
   @override
   Widget build(BuildContext context) {
@@ -75,12 +87,39 @@ class TaskCard extends StatelessWidget {
                 ],
               ),
             ),
-            Checkbox(
-              value: task.done,
-              onChanged: (checked) {
-                onDoneChanged(checked ?? false);
-              },
-            ),
+            ?trailing,
+            if (trailing == null && showCheckbox)
+              Checkbox(
+                value: task.done,
+                onChanged: onDoneChanged == null
+                    ? null
+                    : (checked) {
+                        onDoneChanged!(checked ?? false);
+                      },
+              ),
+            if (onEdit != null || onDelete != null)
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  if (value == 'edit') {
+                    onEdit?.call();
+                  }
+                  if (value == 'delete') {
+                    onDelete?.call();
+                  }
+                },
+                itemBuilder: (context) => [
+                  if (onEdit != null)
+                    const PopupMenuItem<String>(
+                      value: 'edit',
+                      child: Text('編集'),
+                    ),
+                  if (onDelete != null)
+                    const PopupMenuItem<String>(
+                      value: 'delete',
+                      child: Text('削除'),
+                    ),
+                ],
+              ),
           ],
         ),
       ),

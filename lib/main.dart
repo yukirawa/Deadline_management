@@ -1,12 +1,37 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:kigenkanri/screens/task_list_page.dart';
+import 'package:kigenkanri/firebase_options.dart';
+import 'package:kigenkanri/screens/auth_gate.dart';
+import 'package:kigenkanri/screens/firebase_setup_page.dart';
+import 'package:kigenkanri/services/auth_service.dart';
+import 'package:kigenkanri/services/notification_service.dart';
+import 'package:kigenkanri/services/task_repository.dart';
 
-void main() {
-  runApp(const DeadlineRadarApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final setupError = await _initializeFirebase();
+  runApp(DeadlineRadarApp(setupError: setupError));
+}
+
+Future<String?> _initializeFirebase() async {
+  if (!DefaultFirebaseOptions.isConfigured) {
+    return 'Firebase options are not configured. '
+        'Set required --dart-define values before launch.';
+  }
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (error) {
+    return 'Firebase initialization failed: $error';
+  }
+  return null;
 }
 
 class DeadlineRadarApp extends StatelessWidget {
-  const DeadlineRadarApp({super.key});
+  const DeadlineRadarApp({super.key, this.setupError});
+
+  final String? setupError;
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +42,13 @@ class DeadlineRadarApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const TaskListPage(),
+      home: setupError == null
+          ? AuthGate(
+              authService: AuthService(),
+              taskRepository: TaskRepository(),
+              notificationService: NotificationService(),
+            )
+          : FirebaseSetupPage(message: setupError!),
     );
   }
 }

@@ -18,6 +18,8 @@ void main() {
       done: done,
       createdAt: createdAt,
       updatedAt: createdAt,
+      isDeleted: false,
+      deletedAt: null,
     );
   }
 

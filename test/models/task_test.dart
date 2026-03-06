@@ -12,6 +12,8 @@ void main() {
       done: false,
       createdAt: 1,
       updatedAt: 2,
+      isDeleted: false,
+      deletedAt: null,
     );
 
     final restored = Task.fromJson(task.toJson());
@@ -24,5 +26,7 @@ void main() {
     expect(restored.done, task.done);
     expect(restored.createdAt, task.createdAt);
     expect(restored.updatedAt, task.updatedAt);
+    expect(restored.isDeleted, task.isDeleted);
+    expect(restored.deletedAt, task.deletedAt);
   });
 }

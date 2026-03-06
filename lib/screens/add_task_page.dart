@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:kigenkanri/models/task.dart';
 import 'package:kigenkanri/models/task_type.dart';
 import 'package:kigenkanri/utils/deadline_utils.dart';
 
-class AddTaskInput {
-  AddTaskInput({
+class TaskFormResult {
+  const TaskFormResult({
     required this.subject,
     required this.type,
     required this.title,
@@ -16,21 +17,39 @@ class AddTaskInput {
   final String dueDate;
 }
 
-class AddTaskPage extends StatefulWidget {
-  const AddTaskPage({super.key});
+class TaskFormPage extends StatefulWidget {
+  const TaskFormPage({super.key, this.initialTask});
+
+  final Task? initialTask;
 
   @override
-  State<AddTaskPage> createState() => _AddTaskPageState();
+  State<TaskFormPage> createState() => _TaskFormPageState();
 }
 
-class _AddTaskPageState extends State<AddTaskPage> {
+class _TaskFormPageState extends State<TaskFormPage> {
   final _formKey = GlobalKey<FormState>();
   final _subjectController = TextEditingController();
   final _titleController = TextEditingController();
 
-  TaskType _selectedType = TaskType.assignment;
+  late TaskType _selectedType;
   DateTime? _selectedDate;
   bool _showDateError = false;
+
+  bool get _isEdit => widget.initialTask != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final task = widget.initialTask;
+    if (task == null) {
+      _selectedType = TaskType.assignment;
+      return;
+    }
+    _subjectController.text = task.subject;
+    _titleController.text = task.title;
+    _selectedType = TaskType.fromValue(task.type);
+    _selectedDate = parseStorageDate(task.dueDate);
+  }
 
   @override
   void dispose() {
@@ -72,20 +91,20 @@ class _AddTaskPageState extends State<AddTaskPage> {
       return;
     }
 
-    final result = AddTaskInput(
-      subject: _subjectController.text.trim(),
-      type: _selectedType.value,
-      title: _titleController.text.trim(),
-      dueDate: formatStorageDate(_selectedDate!),
+    Navigator.of(context).pop(
+      TaskFormResult(
+        subject: _subjectController.text.trim(),
+        type: _selectedType.value,
+        title: _titleController.text.trim(),
+        dueDate: formatStorageDate(_selectedDate!),
+      ),
     );
-
-    Navigator.of(context).pop(result);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('タスク追加')),
+      appBar: AppBar(title: Text(_isEdit ? 'タスク編集' : 'タスク追加')),
       body: SafeArea(
         child: Form(
           key: _formKey,
@@ -136,7 +155,7 @@ class _AddTaskPageState extends State<AddTaskPage> {
                 controller: _titleController,
                 decoration: const InputDecoration(
                   labelText: '内容',
-                  hintText: '例: ワーク p.12〜15',
+                  hintText: '例: ワーク p.12-15',
                   border: OutlineInputBorder(),
                 ),
                 minLines: 1,
@@ -186,7 +205,7 @@ class _AddTaskPageState extends State<AddTaskPage> {
                   Expanded(
                     child: FilledButton(
                       onPressed: _submit,
-                      child: const Text('保存'),
+                      child: Text(_isEdit ? '更新' : '保存'),
                     ),
                   ),
                 ],
