@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "836327247315",
+    "project_id": "cram-companion-9o3zs",
+    "storage_bucket": "cram-companion-9o3zs.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:836327247315:android:b249b199a3418717ac7326",
+        "android_client_info": {
+          "package_name": "jp.yukirawa.kigenkanri"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "836327247315-lsgscrc3mifrdnvtqfe3iaauigubkqmi.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "jp.yukirawa.kigenkanri",
+            "certificate_hash": "11448711bcb8368887aa969e61a67c2beaa174a6"
+          }
+        },
+        {
+          "client_id": "836327247315-ep8pv82ehv8er0edp3s28hfrdd3sovtp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyACV1w1ltHAshwkkyRTnazc1Ddk52yR_Cw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "836327247315-ep8pv82ehv8er0edp3s28hfrdd3sovtp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -5,10 +5,10 @@ importScripts(
 );
 
 firebase.initializeApp({
-  apiKey: 'YOUR_FIREBASE_WEB_API_KEY',
-  appId: 'YOUR_FIREBASE_WEB_APP_ID',
-  messagingSenderId: 'YOUR_FIREBASE_MESSAGING_SENDER_ID',
-  projectId: 'YOUR_FIREBASE_PROJECT_ID',
+  apiKey: 'AIzaSyAE2NUUVa9HxW9xAS_yL0pKxjP4DjneSFk',
+  appId: '1:836327247315:web:eb0250d1e85c0b8fac7326',
+  messagingSenderId: '836327247315',
+  projectId: 'cram-companion-9o3zs',
 });
 
 const messaging = firebase.messaging();
