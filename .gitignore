@@ -10,7 +10,7 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
-.config/dart_defines.prod.example.json
+/config/dart_defines.prod.example.json
 
 # IntelliJ related
 *.iml
