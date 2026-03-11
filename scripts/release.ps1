@@ -145,7 +145,6 @@ try {
     $currentStep = "Check required commands"
     Require-Command flutter
     if (-not $SkipWebDeploy) {
-        Require-Command ssh
         Require-Command scp
     }
 
@@ -168,35 +167,17 @@ try {
     $webBuildStatus = "OK"
 
     if (-not $SkipWebDeploy) {
-        $remoteTmp = "/tmp/deadline_web_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
         $webBuildSourcePath = (Resolve-Path $webBuildPath).Path
+        $webArtifacts = Get-ChildItem -LiteralPath $webBuildSourcePath -Force
 
-        $currentStep = "Upload web artifacts to $remote"
-        Invoke-Step $currentStep {
-            Invoke-NativeCommand -FilePath "ssh" -Arguments @(
-                $remote,
-                "mkdir -p `"$remoteTmp`" `"$serverWebDirNormalized`""
-            )
-            Invoke-NativeCommand -FilePath "scp" -Arguments @(
-                "-r",
-                $webBuildSourcePath,
-                "${remote}:$remoteTmp/"
-            )
+        if ($webArtifacts.Count -eq 0) {
+            throw "No web artifacts found in $webBuildSourcePath"
         }
 
-        $currentStep = "Activate web artifacts and restart web container"
+        $currentStep = "Upload web artifacts to $webDeployTarget"
         Invoke-Step $currentStep {
-            $remoteCmd = @(
-                "set -e",
-                "find `"$serverWebDirNormalized`" -mindepth 1 -maxdepth 1 -exec rm -rf {} +",
-                "cp -a `"$remoteTmp/web/.`" `"$serverWebDirNormalized/`"",
-                "rm -rf `"$remoteTmp`"",
-                "docker compose -f `"$ServerComposeFile`" restart `"$ServerComposeService`"",
-                "curl -fsSI http://127.0.0.1/deadline/ -H `"Host: $PublicHostHeader`" >/dev/null",
-                "curl -fsSI http://127.0.0.1/deadline/assets/fonts/MaterialIcons-Regular.otf -H `"Host: $PublicHostHeader`" >/dev/null",
-                "curl -fsSI http://127.0.0.1/deadline/assets/packages/cupertino_icons/assets/CupertinoIcons.ttf -H `"Host: $PublicHostHeader`" >/dev/null"
-            ) -join "; "
-            Invoke-NativeCommand -FilePath "ssh" -Arguments @($remote, $remoteCmd)
+            $scpArguments = @("-r") + @($webArtifacts | ForEach-Object { $_.FullName }) + @($webDeployTarget)
+            Invoke-NativeCommand -FilePath "scp" -Arguments $scpArguments
         }
         $webDeployStatus = "OK"
     }
