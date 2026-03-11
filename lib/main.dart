@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:kigenkanri/firebase_options.dart';
+import 'package:kigenkanri/screens/app_bootstrap_page.dart';
 import 'package:kigenkanri/screens/auth_gate.dart';
 import 'package:kigenkanri/screens/firebase_setup_page.dart';
 import 'package:kigenkanri/services/auth_service.dart';
@@ -35,6 +36,14 @@ class DeadlineRadarApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final appHome = setupError == null
+        ? AuthGate(
+            authService: AuthService(),
+            taskRepository: TaskRepository(),
+            notificationService: NotificationService(),
+          )
+        : FirebaseSetupPage(message: setupError!);
+
     return MaterialApp(
       title: '締切レーダー',
       debugShowCheckedModeBanner: false,
@@ -42,13 +51,7 @@ class DeadlineRadarApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: setupError == null
-          ? AuthGate(
-              authService: AuthService(),
-              taskRepository: TaskRepository(),
-              notificationService: NotificationService(),
-            )
-          : FirebaseSetupPage(message: setupError!),
+      home: AppBootstrapPage(child: appHome),
     );
   }
 }
