@@ -30,11 +30,16 @@ function Invoke-Step {
     & $Action
 }
 
-function Require-ReleaseKeystore {
+function Get-AndroidSigningInfo {
     param([Parameter(Mandatory = $true)][string]$Path)
 
+    $requiredKeys = @("storeFile", "storePassword", "keyAlias", "keyPassword")
+
     if (-not (Test-Path $Path)) {
-        throw "Missing $Path. Copy android/key.properties.example and set the production keystore before building an Android release."
+        return [PSCustomObject]@{
+            Mode = "DEBUG"
+            Warning = "android/key.properties was not found. Android release build will use debug signing."
+        }
     }
 
     $properties = @{}
@@ -49,13 +54,20 @@ function Require-ReleaseKeystore {
         $properties[$parts[0].Trim()] = $parts[1].Trim()
     }
 
-    $requiredKeys = @("storeFile", "storePassword", "keyAlias", "keyPassword")
     $missingKeys = $requiredKeys | Where-Object {
         -not $properties.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($properties[$_])
     }
 
     if ($missingKeys.Count -gt 0) {
-        throw "android/key.properties is missing required values: $($missingKeys -join ', ')"
+        return [PSCustomObject]@{
+            Mode = "DEBUG"
+            Warning = "android/key.properties is missing required values ($($missingKeys -join ', ')). Android release build will use debug signing."
+        }
+    }
+
+    return [PSCustomObject]@{
+        Mode = "RELEASE"
+        Warning = $null
     }
 }
 
@@ -91,6 +103,14 @@ $androidReleaseAssetName = "app-release.apk"
 $versionName = Get-VersionName -PubspecPath $pubspecPath
 $expectedReleaseTag = "v$versionName"
 $webDeployTarget = "${remote}:$serverWebDirDisplay"
+$androidSigningInfo = if ($SkipAndroidBuild) {
+    [PSCustomObject]@{
+        Mode = "SKIPPED"
+        Warning = $null
+    }
+} else {
+    Get-AndroidSigningInfo -Path $androidKeystorePropertiesPath
+}
 
 $result = "SUCCESS"
 $failedStep = $null
@@ -114,11 +134,6 @@ try {
     $currentStep = "Validate dart defines file"
     if (-not (Test-Path $DartDefinesFile)) {
         throw "Missing $DartDefinesFile. Copy config/dart_defines.prod.example.json and fill it first."
-    }
-
-    if (-not $SkipAndroidBuild) {
-        $currentStep = "Validate Android release keystore"
-        Require-ReleaseKeystore -Path $androidKeystorePropertiesPath
     }
 
     $defineArg = "--dart-define-from-file=$DartDefinesFile"
@@ -163,6 +178,9 @@ try {
     if (-not $SkipAndroidBuild) {
         $currentStep = "Build Android APK release"
         Invoke-Step $currentStep {
+            if ($androidSigningInfo.Warning) {
+                Write-Warning $androidSigningInfo.Warning
+            }
             flutter build apk --release $defineArg
         }
         $androidBuildStatus = "OK"
@@ -179,6 +197,7 @@ Write-Output "Result: $result"
 Write-Output "Web build: $webBuildStatus -> $webBuildPath"
 Write-Output "Web deploy: $webDeployStatus -> $webDeployTarget"
 Write-Output "Android build: $androidBuildStatus -> $androidApkPath"
+Write-Output "Android signing: $($androidSigningInfo.Mode)"
 Write-Output "Expected Android release tag: $expectedReleaseTag"
 Write-Output "Expected Android asset name: $androidReleaseAssetName"
 
