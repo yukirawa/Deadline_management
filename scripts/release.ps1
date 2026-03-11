@@ -30,6 +30,24 @@ function Invoke-Step {
     & $Action
 }
 
+function Invoke-NativeCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+
+    & $FilePath @Arguments
+    $nativeExitCode = $LASTEXITCODE
+    if ($nativeExitCode -ne 0) {
+        $joinedArguments = if ($Arguments.Count -gt 0) {
+            $Arguments -join " "
+        } else {
+            ""
+        }
+        throw "Command failed with exit code ${nativeExitCode}: $FilePath $joinedArguments".TrimEnd()
+    }
+}
+
 function Get-AndroidSigningInfo {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -128,7 +146,7 @@ try {
     Require-Command flutter
     if (-not $SkipWebDeploy) {
         Require-Command ssh
-        Require-Command tar
+        Require-Command scp
     }
 
     $currentStep = "Validate dart defines file"
@@ -140,37 +158,45 @@ try {
 
     $currentStep = "flutter pub get"
     Invoke-Step $currentStep {
-        flutter pub get
+        Invoke-NativeCommand -FilePath "flutter" -Arguments @("pub", "get")
     }
 
     $currentStep = "Build web release (/deadline/)"
     Invoke-Step $currentStep {
-        flutter build web --release --base-href /deadline/ $defineArg
+        Invoke-NativeCommand -FilePath "flutter" -Arguments @("build", "web", "--release", "--base-href", "/deadline/", $defineArg)
     }
     $webBuildStatus = "OK"
 
     if (-not $SkipWebDeploy) {
         $remoteTmp = "/tmp/deadline_web_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+        $webBuildSourcePath = (Resolve-Path $webBuildPath).Path
 
         $currentStep = "Upload web artifacts to $remote"
         Invoke-Step $currentStep {
-            ssh $remote "set -e; mkdir -p '$remoteTmp' '$serverWebDirNormalized'"
-            tar -cf - -C $webBuildPath . | ssh $remote "set -e; tar -xf - -C '$remoteTmp'"
+            Invoke-NativeCommand -FilePath "ssh" -Arguments @(
+                $remote,
+                "mkdir -p `"$remoteTmp`" `"$serverWebDirNormalized`""
+            )
+            Invoke-NativeCommand -FilePath "scp" -Arguments @(
+                "-r",
+                $webBuildSourcePath,
+                "${remote}:$remoteTmp/"
+            )
         }
 
         $currentStep = "Activate web artifacts and restart web container"
         Invoke-Step $currentStep {
             $remoteCmd = @(
                 "set -e",
-                "find '$serverWebDirNormalized' -mindepth 1 -maxdepth 1 -exec rm -rf {} +",
-                "cp -a '$remoteTmp'/.' '$serverWebDirNormalized'/",
-                "rm -rf '$remoteTmp'",
-                "docker compose -f '$ServerComposeFile' restart '$ServerComposeService'",
-                "curl -fsSI http://127.0.0.1/deadline/ -H 'Host: $PublicHostHeader' >/dev/null",
-                "curl -fsSI http://127.0.0.1/deadline/assets/fonts/MaterialIcons-Regular.otf -H 'Host: $PublicHostHeader' >/dev/null",
-                "curl -fsSI http://127.0.0.1/deadline/assets/packages/cupertino_icons/assets/CupertinoIcons.ttf -H 'Host: $PublicHostHeader' >/dev/null"
+                "find `"$serverWebDirNormalized`" -mindepth 1 -maxdepth 1 -exec rm -rf {} +",
+                "cp -a `"$remoteTmp/web/.`" `"$serverWebDirNormalized/`"",
+                "rm -rf `"$remoteTmp`"",
+                "docker compose -f `"$ServerComposeFile`" restart `"$ServerComposeService`"",
+                "curl -fsSI http://127.0.0.1/deadline/ -H `"Host: $PublicHostHeader`" >/dev/null",
+                "curl -fsSI http://127.0.0.1/deadline/assets/fonts/MaterialIcons-Regular.otf -H `"Host: $PublicHostHeader`" >/dev/null",
+                "curl -fsSI http://127.0.0.1/deadline/assets/packages/cupertino_icons/assets/CupertinoIcons.ttf -H `"Host: $PublicHostHeader`" >/dev/null"
             ) -join "; "
-            ssh $remote $remoteCmd
+            Invoke-NativeCommand -FilePath "ssh" -Arguments @($remote, $remoteCmd)
         }
         $webDeployStatus = "OK"
     }
@@ -181,7 +207,7 @@ try {
             if ($androidSigningInfo.Warning) {
                 Write-Warning $androidSigningInfo.Warning
             }
-            flutter build apk --release $defineArg
+            Invoke-NativeCommand -FilePath "flutter" -Arguments @("build", "apk", "--release", $defineArg)
         }
         $androidBuildStatus = "OK"
     }
