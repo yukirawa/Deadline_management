@@ -27,3 +27,4 @@ Google アカウントでログインして利用します。
 
 - 詳細は [Docs/android_ota_release.md](Docs/android_ota_release.md) を参照してください。
 - production APK は毎回同じ release keystore で署名してください。debug signing の APK を配布すると OTA 更新できません。
+- GitHub Release の tag だけを `v1.2.0` に変えても、APK 内の versionName は変わりません。必ず先に `pubspec.yaml` を更新してからビルドしてください。

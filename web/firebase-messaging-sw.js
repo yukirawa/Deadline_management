@@ -15,9 +15,10 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   const notificationTitle = payload.notification?.title ?? '締切レーダー';
+  const iconUrl = new URL('icons/Icon-192.png', self.registration.scope).href;
   const notificationOptions = {
     body: payload.notification?.body ?? '',
-    icon: '/deadline/icons/Icon-192.png',
+    icon: iconUrl,
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);

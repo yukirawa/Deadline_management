@@ -44,7 +44,13 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/deadline/firebase-messaging-sw.js');
+        const baseHref =
+          document.querySelector('base')?.getAttribute('href') ?? '/';
+        const serviceWorkerUrl = new URL(
+          'firebase-messaging-sw.js',
+          window.location.origin + baseHref,
+        );
+        navigator.serviceWorker.register(serviceWorkerUrl.pathname);
       });
     }
   </script>

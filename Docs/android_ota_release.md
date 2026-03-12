@@ -33,6 +33,7 @@
 1. `pwsh ./scripts/release.ps1 -SkipWebDeploy`
 2. 生成物は `build/app/outputs/flutter-apk/app-release.apk`
 3. スクリプトの出力に表示される expected tag が `v<versionName>` になっていることを確認する
+4. GitHub で公開する tag が決まっている場合は `pwsh ./scripts/release.ps1 -SkipWebDeploy -ReleaseTag v<versionName>` を使って、`pubspec.yaml` と不一致がないことを確認する
 
 ## GitHub Releases
 
@@ -46,3 +47,4 @@
 - 既存の `v1.0.0` 配布版には updater が入っていないため、`v1.1.0` は手動配布が必要
 - `versionName` を変えずに APK を差し替える運用はしない
 - keystore が変わると既存ユーザーは上書き更新できない
+- GitHub Release の tag を先に上げても APK の `versionName` は変わらない。必ず `pubspec.yaml` を更新してからビルドする

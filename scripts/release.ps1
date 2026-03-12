@@ -1,5 +1,6 @@
 param(
     [string]$DartDefinesFile = "config/dart_defines.prod.json",
+    [string]$ReleaseTag = "",
     [string]$ServerUser = "shunta",
     [string]$ServerHost = "192.168.100.99",
     [string]$ServerWebDir = "/home/shunta/server/apps/web/main/deadline/",
@@ -100,6 +101,21 @@ function Get-VersionName {
     throw "Could not parse versionName from $PubspecPath"
 }
 
+function Confirm-ReleaseTag {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExpectedReleaseTag,
+        [string]$ReleaseTag = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ReleaseTag)) {
+        return
+    }
+
+    if ($ReleaseTag.Trim() -ne $ExpectedReleaseTag) {
+        throw "ReleaseTag '$ReleaseTag' does not match pubspec versionName. Expected '$ExpectedReleaseTag'. Update pubspec.yaml before building."
+    }
+}
+
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $androidKeystorePropertiesPath = Join-Path $projectRoot "android\key.properties"
 $pubspecPath = Join-Path $projectRoot "pubspec.yaml"
@@ -153,6 +169,9 @@ try {
         throw "Missing $DartDefinesFile. Copy config/dart_defines.prod.example.json and fill it first."
     }
 
+    $currentStep = "Validate release tag"
+    Confirm-ReleaseTag -ExpectedReleaseTag $expectedReleaseTag -ReleaseTag $ReleaseTag
+
     $defineArg = "--dart-define-from-file=$DartDefinesFile"
 
     $currentStep = "flutter pub get"
@@ -204,6 +223,7 @@ Write-Output "Result: $result"
 Write-Output "Web build: $webBuildStatus -> $webBuildPath"
 Write-Output "Web deploy: $webDeployStatus -> $webDeployTarget"
 Write-Output "Android build: $androidBuildStatus -> $androidApkPath"
+Write-Output "Android versionName: $versionName"
 Write-Output "Android signing: $($androidSigningInfo.Mode)"
 Write-Output "Expected Android release tag: $expectedReleaseTag"
 Write-Output "Expected Android asset name: $androidReleaseAssetName"
