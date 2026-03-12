@@ -1,3 +1,5 @@
+const Object _dueTimeSentinel = Object();
+
 class Task {
   Task({
     required this.id,
@@ -5,6 +7,7 @@ class Task {
     required this.type,
     required this.title,
     required this.dueDate,
+    this.dueTime,
     required this.done,
     required this.createdAt,
     required this.updatedAt,
@@ -17,6 +20,7 @@ class Task {
   final String type;
   final String title;
   final String dueDate;
+  final String? dueTime;
   final bool done;
   final int createdAt;
   final int updatedAt;
@@ -29,6 +33,7 @@ class Task {
     String? type,
     String? title,
     String? dueDate,
+    Object? dueTime = _dueTimeSentinel,
     bool? done,
     int? createdAt,
     int? updatedAt,
@@ -42,6 +47,9 @@ class Task {
       type: type ?? this.type,
       title: title ?? this.title,
       dueDate: dueDate ?? this.dueDate,
+      dueTime: identical(dueTime, _dueTimeSentinel)
+          ? this.dueTime
+          : dueTime as String?,
       done: done ?? this.done,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -57,6 +65,7 @@ class Task {
       'type': type,
       'title': title,
       'dueDate': dueDate,
+      'dueTime': dueTime,
       'done': done,
       'createdAt': createdAt,
       'updatedAt': updatedAt,
@@ -72,6 +81,7 @@ class Task {
       type: (json['type'] as String?) ?? 'assignment',
       title: (json['title'] as String?) ?? '',
       dueDate: (json['dueDate'] as String?) ?? '',
+      dueTime: _normalizeDueTime(json['dueTime']),
       done: (json['done'] as bool?) ?? false,
       createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
       updatedAt: (json['updatedAt'] as num?)?.toInt() ?? 0,
@@ -91,6 +101,7 @@ class Task {
         other.type == type &&
         other.title == title &&
         other.dueDate == dueDate &&
+        other.dueTime == dueTime &&
         other.done == done &&
         other.createdAt == createdAt &&
         other.updatedAt == updatedAt &&
@@ -105,10 +116,19 @@ class Task {
     type,
     title,
     dueDate,
+    dueTime,
     done,
     createdAt,
     updatedAt,
     isDeleted,
     deletedAt,
   );
+}
+
+String? _normalizeDueTime(Object? value) {
+  final raw = value as String?;
+  if (raw == null || raw.isEmpty) {
+    return null;
+  }
+  return raw;
 }

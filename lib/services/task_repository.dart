@@ -76,7 +76,18 @@ class TaskRepository {
     final ref = _profileRef(uid);
     final snapshot = await ref.get();
     if (snapshot.exists) {
-      return UserSettings.fromJson(snapshot.data()!);
+      final data = snapshot.data()!;
+      final settings = UserSettings.fromJson(data);
+      final hasDeadlineRules = data.containsKey('deadlineReminderRules');
+      final hasDailyRules = data.containsKey('dailySummaryRules');
+      if (!hasDeadlineRules || !hasDailyRules) {
+        final merged = settings.copyWith(
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+        await ref.set(merged.toJson(), SetOptions(merge: true));
+        return merged;
+      }
+      return settings;
     }
     final defaults = UserSettings.defaults();
     await ref.set(defaults.toJson(), SetOptions(merge: true));
@@ -89,6 +100,7 @@ class TaskRepository {
     required String type,
     required String title,
     required String dueDate,
+    String? dueTime,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final task = Task(
@@ -97,6 +109,7 @@ class TaskRepository {
       type: type,
       title: title,
       dueDate: dueDate,
+      dueTime: dueTime,
       done: false,
       createdAt: now,
       updatedAt: now,
@@ -114,12 +127,14 @@ class TaskRepository {
     required String type,
     required String title,
     required String dueDate,
+    String? dueTime,
   }) async {
     final candidate = original.copyWith(
       subject: subject,
       type: type,
       title: title,
       dueDate: dueDate,
+      dueTime: dueTime,
       updatedAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _upsertWithLww(uid, candidate);

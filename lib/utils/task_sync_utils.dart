@@ -30,9 +30,10 @@ int compareTaskForDisplay(Task left, Task right) {
     return left.done ? 1 : -1;
   }
 
-  final dueDateCompare = parseStorageDate(
+  final dueDateCompare = resolveDueDateTime(
     left.dueDate,
-  ).compareTo(parseStorageDate(right.dueDate));
+    dueTime: left.dueTime,
+  ).compareTo(resolveDueDateTime(right.dueDate, dueTime: right.dueTime));
   if (dueDateCompare != 0) {
     return dueDateCompare;
   }

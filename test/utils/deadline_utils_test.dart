@@ -5,7 +5,7 @@ void main() {
   const baseDate = '2026-03-06';
   final baseNow = DateTime(2026, 3, 6, 18, 0);
 
-  test('daysLeftと危険度の境界値が正しい', () {
+  test('daysLeft と危険度の境界値が正しい', () {
     final daysLeftExpired = calculateDaysLeft('2026-03-05', now: baseNow);
     final daysLeftDanger0 = calculateDaysLeft(baseDate, now: baseNow);
     final daysLeftDanger1 = calculateDaysLeft('2026-03-07', now: baseNow);
@@ -37,5 +37,12 @@ void main() {
 
     expect(stored, '2026-03-06');
     expect(display, '2026/03/06');
+  });
+
+  test('dueTime が null の場合は 23:59 を使う', () {
+    final dueDateTime = resolveDueDateTime('2026-03-06');
+
+    expect(formatStorageTime(dueDateTime), fallbackDueTime);
+    expect(dueTimeLabel(null), '時刻未設定');
   });
 }

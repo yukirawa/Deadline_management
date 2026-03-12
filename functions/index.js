@@ -2,12 +2,20 @@ const { DateTime } = require('luxon');
 const admin = require('firebase-admin');
 const { logger } = require('firebase-functions');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const {
+  buildDailySummaryNotification,
+  buildDeadlineReminderNotification,
+  buildNotificationSlotKey,
+  buildSummary,
+  normalizeProfile,
+  resolveDueDailySummaryRules,
+  resolveSlotWindow,
+  selectTasksForDeadlineRule,
+} = require('./notification_logic');
 
 admin.initializeApp();
 
 const db = admin.firestore();
-
-const SLOT_WINDOWS = [{ hour: 7 }, { hour: 19 }];
 const REGION = 'asia-northeast1';
 
 exports.sendDeadlineSummary = onSchedule(
@@ -41,20 +49,100 @@ async function processUser(uid, nowUtc) {
     return;
   }
 
-  const profile = profileSnapshot.data();
+  const profile = normalizeProfile(profileSnapshot.data());
   if (!profile.notificationsEnabled) {
     return;
   }
 
-  const timezone = typeof profile.timezone === 'string' ? profile.timezone : 'Asia/Tokyo';
-  const slot = resolveCurrentSlot(nowUtc, timezone);
-  if (!slot) {
+  const slotWindow = resolveSlotWindow(nowUtc, profile.timezone);
+  if (!slotWindow) {
     return;
   }
 
-  const slotRef = db.collection('users').doc(uid).collection('notification_slots').doc(slot.slotKey);
+  const dueDailyRules = resolveDueDailySummaryRules(profile.dailySummaryRules, slotWindow.slotStart);
+  const enabledDeadlineRules = profile.deadlineReminderRules.filter((rule) => rule.enabled);
+
+  if (dueDailyRules.length === 0 && enabledDeadlineRules.length === 0) {
+    return;
+  }
+
+  let tasksSnapshotPromise;
+  let devicesSnapshotPromise;
+
+  const getTasksSnapshot = async () => {
+    tasksSnapshotPromise ??= db
+      .collection('users')
+      .doc(uid)
+      .collection('tasks')
+      .where('isDeleted', '==', false)
+      .where('done', '==', false)
+      .get();
+    return tasksSnapshotPromise;
+  };
+
+  const getDevicesSnapshot = async () => {
+    devicesSnapshotPromise ??= db.collection('users').doc(uid).collection('devices').get();
+    return devicesSnapshotPromise;
+  };
+
+  for (const rule of dueDailyRules) {
+    await processDailySummaryRule({
+      uid,
+      timezone: profile.timezone,
+      slotWindow,
+      rule,
+      getTasksSnapshot,
+      getDevicesSnapshot,
+    });
+  }
+
+  if (enabledDeadlineRules.length === 0) {
+    return;
+  }
+
+  const tasksSnapshot = await getTasksSnapshot();
+  for (const rule of enabledDeadlineRules) {
+    const matchedTasks = selectTasksForDeadlineRule(
+      tasksSnapshot.docs,
+      rule,
+      slotWindow,
+      profile.timezone,
+    );
+    if (matchedTasks.length === 0) {
+      continue;
+    }
+
+    await processDeadlineReminderRule({
+      uid,
+      timezone: profile.timezone,
+      slotWindow,
+      rule,
+      matchedTasks,
+      getDevicesSnapshot,
+    });
+  }
+}
+
+async function processDailySummaryRule({
+  uid,
+  timezone,
+  slotWindow,
+  rule,
+  getTasksSnapshot,
+  getDevicesSnapshot,
+}) {
+  const slotKey = buildNotificationSlotKey({
+    mode: 'daily',
+    ruleId: rule.id,
+    slotStart: slotWindow.slotStart,
+    timezone,
+  });
+  const slotRef = db.collection('users').doc(uid).collection('notification_slots').doc(slotKey);
+
   try {
     await slotRef.create({
+      mode: 'daily',
+      ruleId: rule.id,
       timezone,
       status: 'processing',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -67,15 +155,9 @@ async function processUser(uid, nowUtc) {
   }
 
   try {
-    const tasksSnapshot = await db
-      .collection('users')
-      .doc(uid)
-      .collection('tasks')
-      .where('isDeleted', '==', false)
-      .where('done', '==', false)
-      .get();
+    const tasksSnapshot = await getTasksSnapshot();
+    const summary = buildSummary(tasksSnapshot.docs, slotWindow.todayDate, slotWindow.tomorrowDate);
 
-    const summary = buildSummary(tasksSnapshot.docs, slot.todayDate, slot.tomorrowDate);
     if (summary.total === 0) {
       await slotRef.set(
         {
@@ -88,15 +170,8 @@ async function processUser(uid, nowUtc) {
       return;
     }
 
-    const devicesSnapshot = await db.collection('users').doc(uid).collection('devices').get();
-    const tokens = [
-      ...new Set(
-        devicesSnapshot.docs
-          .map((device) => device.data().token)
-          .filter((token) => typeof token === 'string' && token.length > 0),
-      ),
-    ];
-
+    const devicesSnapshot = await getDevicesSnapshot();
+    const tokens = extractTokens(devicesSnapshot.docs);
     if (tokens.length === 0) {
       await slotRef.set(
         {
@@ -109,20 +184,19 @@ async function processUser(uid, nowUtc) {
       return;
     }
 
+    const notification = buildDailySummaryNotification(summary);
     const response = await admin.messaging().sendEachForMulticast({
       tokens,
-      notification: {
-        title: '締切レーダー',
-        body: `未完了 ${summary.total}件（期限切れ${summary.overdue} / 今日${summary.today} / 明日${summary.tomorrow}）`,
-      },
+      notification,
       data: {
-        slotKey: slot.slotKey,
+        mode: 'daily',
+        ruleId: rule.id,
+        slotKey,
         timezone,
       },
     });
 
     await removeInvalidTokens(uid, devicesSnapshot.docs, tokens, response.responses);
-
     await slotRef.set(
       {
         status: 'sent',
@@ -147,49 +221,99 @@ async function processUser(uid, nowUtc) {
   }
 }
 
-function resolveCurrentSlot(nowUtc, timezone) {
-  const localNow = nowUtc.setZone(timezone);
-  if (!localNow.isValid) {
-    return null;
+async function processDeadlineReminderRule({
+  uid,
+  timezone,
+  slotWindow,
+  rule,
+  matchedTasks,
+  getDevicesSnapshot,
+}) {
+  const slotKey = buildNotificationSlotKey({
+    mode: 'deadline',
+    ruleId: rule.id,
+    slotStart: slotWindow.slotStart,
+    timezone,
+  });
+  const slotRef = db.collection('users').doc(uid).collection('notification_slots').doc(slotKey);
+
+  try {
+    await slotRef.create({
+      mode: 'deadline',
+      ruleId: rule.id,
+      timezone,
+      status: 'processing',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    if (isAlreadyExists(error)) {
+      return;
+    }
+    throw error;
   }
 
-  for (const slot of SLOT_WINDOWS) {
-    if (localNow.hour === slot.hour && localNow.minute < 15) {
-      const todayDate = localNow.toFormat('yyyy-MM-dd');
-      const tomorrowDate = localNow.plus({ days: 1 }).toFormat('yyyy-MM-dd');
-      const hh = String(slot.hour).padStart(2, '0');
-      return {
-        todayDate,
-        tomorrowDate,
-        slotKey: `${todayDate}_${hh}00_${timezone}`,
-      };
+  try {
+    const devicesSnapshot = await getDevicesSnapshot();
+    const tokens = extractTokens(devicesSnapshot.docs);
+    if (tokens.length === 0) {
+      await slotRef.set(
+        {
+          status: 'skipped',
+          reason: 'no_devices',
+          matchedCount: matchedTasks.length,
+          sentAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      return;
     }
+
+    const notification = buildDeadlineReminderNotification(matchedTasks, rule);
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens,
+      notification,
+      data: {
+        mode: 'deadline',
+        ruleId: rule.id,
+        slotKey,
+        timezone,
+      },
+    });
+
+    await removeInvalidTokens(uid, devicesSnapshot.docs, tokens, response.responses);
+    await slotRef.set(
+      {
+        status: 'sent',
+        timezone,
+        matchedCount: matchedTasks.length,
+        tokenCount: tokens.length,
+        successCount: response.successCount,
+        failureCount: response.failureCount,
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  } catch (error) {
+    await slotRef.set(
+      {
+        status: 'error',
+        error: String(error),
+        sentAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    throw error;
   }
-  return null;
 }
 
-function buildSummary(taskDocs, todayDate, tomorrowDate) {
-  let total = 0;
-  let overdue = 0;
-  let today = 0;
-  let tomorrow = 0;
-
-  for (const doc of taskDocs) {
-    const dueDate = doc.data().dueDate;
-    if (typeof dueDate !== 'string' || dueDate.length !== 10) {
-      continue;
-    }
-    total += 1;
-    if (dueDate < todayDate) {
-      overdue += 1;
-    } else if (dueDate === todayDate) {
-      today += 1;
-    } else if (dueDate === tomorrowDate) {
-      tomorrow += 1;
-    }
-  }
-
-  return { total, overdue, today, tomorrow };
+function extractTokens(deviceDocs) {
+  return [
+    ...new Set(
+      deviceDocs
+        .map((device) => device.data().token)
+        .filter((token) => typeof token === 'string' && token.length > 0),
+    ),
+  ];
 }
 
 function isAlreadyExists(error) {

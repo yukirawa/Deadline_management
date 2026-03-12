@@ -2,9 +2,13 @@ import 'package:intl/intl.dart';
 
 const String storageDatePattern = 'yyyy-MM-dd';
 const String displayDatePattern = 'yyyy/MM/dd';
+const String storageTimePattern = 'HH:mm';
+const String fallbackDueTime = '23:59';
 
 final DateFormat _storageDateFormatter = DateFormat(storageDatePattern);
 final DateFormat _displayDateFormatter = DateFormat(displayDatePattern);
+final DateFormat _storageTimeFormatter = DateFormat(storageTimePattern);
+final DateFormat _displayTimeFormatter = DateFormat(storageTimePattern);
 
 enum RiskLevel { expired, danger, warning, safe }
 
@@ -20,6 +24,48 @@ String formatStorageDate(DateTime date) {
 
 String formatDisplayDate(String dueDate) {
   return _displayDateFormatter.format(parseStorageDate(dueDate));
+}
+
+DateTime parseStorageTime(String value) {
+  return _storageTimeFormatter.parseStrict(value);
+}
+
+String formatStorageTime(DateTime date) {
+  final normalized = DateTime(0, 1, 1, date.hour, date.minute);
+  return _storageTimeFormatter.format(normalized);
+}
+
+String formatDisplayTime(String dueTime) {
+  return _displayTimeFormatter.format(parseStorageTime(dueTime));
+}
+
+String effectiveDueTime(String? dueTime) {
+  if (dueTime == null || dueTime.isEmpty) {
+    return fallbackDueTime;
+  }
+  try {
+    parseStorageTime(dueTime);
+    return dueTime;
+  } catch (_) {
+    return fallbackDueTime;
+  }
+}
+
+DateTime resolveDueDateTime(String dueDate, {String? dueTime}) {
+  final date = parseStorageDate(dueDate);
+  final time = parseStorageTime(effectiveDueTime(dueTime));
+  return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+}
+
+String dueTimeLabel(String? dueTime) {
+  if (dueTime == null || dueTime.isEmpty) {
+    return '時刻未設定';
+  }
+  try {
+    return formatDisplayTime(dueTime);
+  } catch (_) {
+    return '時刻未設定';
+  }
 }
 
 int calculateDaysLeft(String dueDate, {DateTime? now}) {

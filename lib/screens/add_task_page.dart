@@ -9,12 +9,14 @@ class TaskFormResult {
     required this.type,
     required this.title,
     required this.dueDate,
+    required this.dueTime,
   });
 
   final String subject;
   final String type;
   final String title;
   final String dueDate;
+  final String? dueTime;
 }
 
 class TaskFormPage extends StatefulWidget {
@@ -33,6 +35,7 @@ class _TaskFormPageState extends State<TaskFormPage> {
 
   late TaskType _selectedType;
   DateTime? _selectedDate;
+  String? _selectedTime;
   bool _showDateError = false;
 
   bool get _isEdit => widget.initialTask != null;
@@ -49,6 +52,7 @@ class _TaskFormPageState extends State<TaskFormPage> {
     _titleController.text = task.title;
     _selectedType = TaskType.fromValue(task.type);
     _selectedDate = parseStorageDate(task.dueDate);
+    _selectedTime = task.dueTime;
   }
 
   @override
@@ -67,16 +71,31 @@ class _TaskFormPageState extends State<TaskFormPage> {
       lastDate: DateTime(now.year + 10),
     );
 
-    if (!mounted) {
+    if (!mounted || pickedDate == null) {
       return;
     }
 
-    if (pickedDate != null) {
-      setState(() {
-        _selectedDate = pickedDate;
-        _showDateError = false;
-      });
+    setState(() {
+      _selectedDate = pickedDate;
+      _showDateError = false;
+    });
+  }
+
+  Future<void> _selectTime() async {
+    final pickedTime = await showDialog<String?>(
+      context: context,
+      builder: (context) {
+        return _QuarterHourTimeDialog(initialValue: _selectedTime);
+      },
+    );
+
+    if (!mounted || pickedTime == null) {
+      return;
     }
+
+    setState(() {
+      _selectedTime = pickedTime.isEmpty ? null : pickedTime;
+    });
   }
 
   void _submit() {
@@ -97,6 +116,7 @@ class _TaskFormPageState extends State<TaskFormPage> {
         type: _selectedType.value,
         title: _titleController.text.trim(),
         dueDate: formatStorageDate(_selectedDate!),
+        dueTime: _selectedTime,
       ),
     );
   }
@@ -187,7 +207,24 @@ class _TaskFormPageState extends State<TaskFormPage> {
                     ),
                     TextButton(
                       onPressed: _selectDate,
-                      child: const Text('日付選択'),
+                      child: const Text('日付を選択'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: '締切時刻',
+                  border: OutlineInputBorder(),
+                  helperText: '任意。15分単位で設定できます',
+                ),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(dueTimeLabel(_selectedTime))),
+                    TextButton(
+                      onPressed: _selectTime,
+                      child: const Text('時刻を設定'),
                     ),
                   ],
                 ),
@@ -214,6 +251,112 @@ class _TaskFormPageState extends State<TaskFormPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _QuarterHourTimeDialog extends StatefulWidget {
+  const _QuarterHourTimeDialog({this.initialValue});
+
+  final String? initialValue;
+
+  @override
+  State<_QuarterHourTimeDialog> createState() => _QuarterHourTimeDialogState();
+}
+
+class _QuarterHourTimeDialogState extends State<_QuarterHourTimeDialog> {
+  late int _hour;
+  late int _minute;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue ?? '23:00';
+    final parts = initial.split(':');
+    _hour = int.tryParse(parts[0]) ?? 23;
+    _minute = int.tryParse(parts[1]) ?? 0;
+    if (_minute % 15 != 0) {
+      _minute = (_minute ~/ 15) * 15;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('締切時刻を設定'),
+      content: Row(
+        children: [
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              initialValue: _hour,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: '時',
+              ),
+              items: List.generate(
+                24,
+                (index) => DropdownMenuItem<int>(
+                  value: index,
+                  child: Text(index.toString().padLeft(2, '0')),
+                ),
+              ),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() {
+                  _hour = value;
+                });
+              },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButtonFormField<int>(
+              initialValue: _minute,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: '分',
+              ),
+              items: const [0, 15, 30, 45]
+                  .map(
+                    (value) => DropdownMenuItem<int>(
+                      value: value,
+                      child: Text(value.toString().padLeft(2, '0')),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() {
+                  _minute = value;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        if (widget.initialValue != null)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(''),
+            child: const Text('クリア'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('キャンセル'),
+        ),
+        FilledButton(
+          onPressed: () {
+            Navigator.of(context).pop(
+              '${_hour.toString().padLeft(2, '0')}:${_minute.toString().padLeft(2, '0')}',
+            );
+          },
+          child: const Text('保存'),
+        ),
+      ],
     );
   }
 }

@@ -76,6 +76,11 @@ class TaskCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 10),
                       Text(
+                        dueTimeLabel(task.dueTime),
+                        style: TextStyle(color: textColor),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
                         remainingDaysLabel(daysLeft),
                         style: TextStyle(
                           color: textColor,

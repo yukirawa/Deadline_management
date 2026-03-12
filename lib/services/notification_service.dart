@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:kigenkanri/models/notification_rules.dart';
+import 'package:kigenkanri/models/user_settings.dart';
 import 'package:kigenkanri/services/task_storage_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -52,11 +54,35 @@ class NotificationService {
     return _messaging.requestPermission(alert: true, badge: true, sound: true);
   }
 
-  Future<void> setNotificationsEnabled({
+  Future<void> updateNotificationPreferences({
     required String uid,
-    required bool enabled,
+    required UserSettings previousSettings,
+    required UserSettings nextSettings,
   }) async {
-    if (enabled) {
+    if (!supportedTimezones.contains(nextSettings.timezone)) {
+      throw ArgumentError.value(
+        nextSettings.timezone,
+        'timezone',
+        'Unsupported timezone',
+      );
+    }
+
+    final deadlineRuleError = validateDeadlineReminderRules(
+      nextSettings.deadlineReminderRules,
+    );
+    if (deadlineRuleError != null) {
+      throw ArgumentError(deadlineRuleError);
+    }
+
+    final dailyRuleError = validateDailySummaryRules(
+      nextSettings.dailySummaryRules,
+    );
+    if (dailyRuleError != null) {
+      throw ArgumentError(dailyRuleError);
+    }
+
+    if (!previousSettings.notificationsEnabled &&
+        nextSettings.notificationsEnabled) {
       final permission = await requestPermission();
       final granted =
           permission.authorizationStatus == AuthorizationStatus.authorized ||
@@ -64,26 +90,16 @@ class NotificationService {
       if (!granted) {
         throw StateError('Notification permission was not granted.');
       }
+    }
+
+    if (nextSettings.notificationsEnabled) {
       await registerDeviceToken(uid);
     }
 
-    await _profileRef(uid).set({
-      'notificationsEnabled': enabled,
-      'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    }, SetOptions(merge: true));
-  }
-
-  Future<void> updateTimezone({
-    required String uid,
-    required String timezone,
-  }) async {
-    if (!supportedTimezones.contains(timezone)) {
-      throw ArgumentError.value(timezone, 'timezone', 'Unsupported timezone');
-    }
-    await _profileRef(uid).set({
-      'timezone': timezone,
-      'updatedAt': DateTime.now().millisecondsSinceEpoch,
-    }, SetOptions(merge: true));
+    final payload = nextSettings.copyWith(
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _profileRef(uid).set(payload.toJson(), SetOptions(merge: true));
   }
 
   Future<void> registerDeviceToken(String uid, {String? token}) async {

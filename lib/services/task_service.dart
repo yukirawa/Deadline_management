@@ -28,6 +28,7 @@ class TaskService {
     required String type,
     required String title,
     required String dueDate,
+    String? dueTime,
   }) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final task = Task(
@@ -36,6 +37,7 @@ class TaskService {
       type: type,
       title: title,
       dueDate: dueDate,
+      dueTime: dueTime,
       done: false,
       createdAt: now,
       updatedAt: now,

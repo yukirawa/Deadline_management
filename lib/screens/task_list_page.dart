@@ -8,6 +8,7 @@ import 'package:kigenkanri/services/auth_service.dart';
 import 'package:kigenkanri/services/notification_service.dart';
 import 'package:kigenkanri/services/task_repository.dart';
 import 'package:kigenkanri/utils/task_filter_utils.dart';
+import 'package:kigenkanri/widgets/notification_preferences_form.dart';
 import 'package:kigenkanri/widgets/task_card.dart';
 
 class TaskHomePage extends StatefulWidget {
@@ -77,6 +78,7 @@ class _TaskHomePageState extends State<TaskHomePage> {
           type: input.type,
           title: input.title,
           dueDate: input.dueDate,
+          dueTime: input.dueTime,
         );
       } else {
         await widget.taskRepository.updateTask(
@@ -86,10 +88,11 @@ class _TaskHomePageState extends State<TaskHomePage> {
           type: input.type,
           title: input.title,
           dueDate: input.dueDate,
+          dueTime: input.dueTime,
         );
       }
     } catch (error) {
-      _showError('保存に失敗しました: $error');
+      _showError('タスクの保存に失敗しました: $error');
     }
   }
 
@@ -101,7 +104,7 @@ class _TaskHomePageState extends State<TaskHomePage> {
         done: done,
       );
     } catch (error) {
-      _showError('更新に失敗しました: $error');
+      _showError('完了状態の更新に失敗しました: $error');
     }
   }
 
@@ -110,8 +113,8 @@ class _TaskHomePageState extends State<TaskHomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('タスク削除'),
-          content: const Text('このタスクを削除しますか？（ごみ箱から復元できます）'),
+          title: const Text('タスクを削除'),
+          content: const Text('このタスクをゴミ箱に移動します。後から復元できます。'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -153,7 +156,7 @@ class _TaskHomePageState extends State<TaskHomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('完全削除'),
+          title: const Text('完全に削除'),
           content: const Text('このタスクを完全に削除します。元に戻せません。'),
           actions: [
             TextButton(
@@ -309,7 +312,7 @@ class _TaskHomePageState extends State<TaskHomePage> {
                   ),
                   NavigationDestination(
                     icon: Icon(Icons.delete_outline),
-                    label: 'ごみ箱',
+                    label: 'ゴミ箱',
                   ),
                   NavigationDestination(
                     icon: Icon(Icons.settings),
@@ -327,7 +330,7 @@ class _TaskHomePageState extends State<TaskHomePage> {
   String get _titleForTab {
     switch (_tabIndex) {
       case 1:
-        return 'ごみ箱';
+        return 'ゴミ箱';
       case 2:
         return '設定';
       default:
@@ -443,7 +446,7 @@ class _TaskListTab extends StatelessWidget {
         ),
         Expanded(
           child: tasks.isEmpty
-              ? const Center(child: Text('対象のタスクはありません'))
+              ? const Center(child: Text('表示できるタスクがありません'))
               : ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: tasks.length,
@@ -478,7 +481,7 @@ class _TrashTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (tasks.isEmpty) {
-      return const Center(child: Text('ごみ箱は空です'));
+      return const Center(child: Text('ゴミ箱は空です'));
     }
 
     return ListView.separated(
@@ -532,9 +535,6 @@ class _SettingsTab extends StatelessWidget {
       stream: taskRepository.watchUserSettings(user.uid),
       builder: (context, snapshot) {
         final settings = snapshot.data ?? UserSettings.defaults();
-        final timezone = supportedTimezones.contains(settings.timezone)
-            ? settings.timezone
-            : UserSettings.defaultTimezone;
 
         return ListView(
           padding: const EdgeInsets.all(16),
@@ -547,45 +547,18 @@ class _SettingsTab extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            SwitchListTile(
-              value: settings.notificationsEnabled,
-              title: const Text('通知を有効にする'),
-              subtitle: const Text('前日19:00 / 当日07:00 に要約通知'),
-              onChanged: (enabled) async {
+            NotificationPreferencesForm(
+              initialSettings: settings,
+              onSave: (draft) async {
                 try {
-                  await notificationService.setNotificationsEnabled(
+                  await notificationService.updateNotificationPreferences(
                     uid: user.uid,
-                    enabled: enabled,
+                    previousSettings: settings,
+                    nextSettings: draft,
                   );
                 } catch (error) {
-                  onError('通知設定に失敗しました: $error');
-                }
-              },
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: timezone,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: '通知タイムゾーン',
-              ),
-              items: supportedTimezones
-                  .map(
-                    (tz) =>
-                        DropdownMenuItem<String>(value: tz, child: Text(tz)),
-                  )
-                  .toList(),
-              onChanged: (value) async {
-                if (value == null) {
-                  return;
-                }
-                try {
-                  await notificationService.updateTimezone(
-                    uid: user.uid,
-                    timezone: value,
-                  );
-                } catch (error) {
-                  onError('タイムゾーン更新に失敗しました: $error');
+                  onError('通知設定の保存に失敗しました: $error');
+                  rethrow;
                 }
               },
             ),

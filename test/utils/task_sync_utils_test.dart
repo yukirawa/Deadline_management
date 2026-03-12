@@ -10,6 +10,7 @@ Task buildTask({
   bool isDeleted = false,
   int? deletedAt,
   String dueDate = '2026-03-10',
+  String? dueTime,
 }) {
   return Task(
     id: id,
@@ -17,6 +18,7 @@ Task buildTask({
     type: 'assignment',
     title: '課題',
     dueDate: dueDate,
+    dueTime: dueTime,
     done: done,
     createdAt: createdAt,
     updatedAt: updatedAt,
@@ -26,7 +28,7 @@ Task buildTask({
 }
 
 void main() {
-  test('LWWはupdatedAtが新しいタスクを採用する', () {
+  test('LWW は updatedAt が新しいタスクを採用する', () {
     final current = buildTask(id: 'a', updatedAt: 100, createdAt: 10);
     final incoming = buildTask(id: 'a', updatedAt: 200, createdAt: 9);
 
@@ -35,7 +37,7 @@ void main() {
     expect(resolved.updatedAt, 200);
   });
 
-  test('updatedAtが同一ならcreatedAtが大きい方を採用する', () {
+  test('updatedAt が同一なら createdAt が大きい方を採用する', () {
     final current = buildTask(id: 'a', updatedAt: 100, createdAt: 10);
     final incoming = buildTask(id: 'a', updatedAt: 100, createdAt: 11);
 
@@ -44,7 +46,26 @@ void main() {
     expect(resolved.createdAt, 11);
   });
 
-  test('論理削除タスクは30日を超えたらpurge対象', () {
+  test('同日のタスクは締切時刻順に並ぶ', () {
+    final early = buildTask(
+      id: 'early',
+      updatedAt: 1,
+      createdAt: 1,
+      dueDate: '2026-03-10',
+      dueTime: '09:00',
+    );
+    final late = buildTask(
+      id: 'late',
+      updatedAt: 1,
+      createdAt: 2,
+      dueDate: '2026-03-10',
+      dueTime: null,
+    );
+
+    expect(compareTaskForDisplay(early, late), lessThan(0));
+  });
+
+  test('論理削除タスクは30日を超えたら purge 対象', () {
     final now = DateTime(2026, 3, 30);
     final oldDeleted = buildTask(
       id: 'a',
