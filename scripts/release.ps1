@@ -94,7 +94,7 @@ function Get-VersionName {
     param([Parameter(Mandatory = $true)][string]$PubspecPath)
 
     $pubspec = Get-Content $PubspecPath -Raw
-    if ($pubspec -match '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\+\d+\s*$') {
+    if ($pubspec -match '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)(?:\+\d+)?\s*$') {
         return $matches[1]
     }
 
@@ -116,9 +116,48 @@ function Confirm-ReleaseTag {
     }
 }
 
+function Convert-ToPosixSingleQuotedString {
+    param([Parameter(Mandatory = $true)][string]$Value)
+
+    return "'" + $Value + "'"
+}
+
+function Assert-PublicWebAsset {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [Parameter(Mandatory = $true)][string[]]$ExpectedContentTypeHints
+    )
+
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -Method Head
+    } catch {
+        throw "Public asset check failed for '$Url': $($_.Exception.Message)"
+    }
+
+    $contentType = [string]$response.Headers["Content-Type"]
+    if ([string]::IsNullOrWhiteSpace($contentType)) {
+        throw "Public asset check failed for '$Url': response did not include a Content-Type header."
+    }
+
+    $normalizedContentType = $contentType.ToLowerInvariant()
+    $matchesExpectedType = $false
+    foreach ($hint in $ExpectedContentTypeHints) {
+        if ($normalizedContentType.Contains($hint.ToLowerInvariant())) {
+            $matchesExpectedType = $true
+            break
+        }
+    }
+
+    if (-not $matchesExpectedType) {
+        $expectedTypesDisplay = $ExpectedContentTypeHints -join ", "
+        throw "Public asset check failed for '$Url': expected Content-Type containing one of [$expectedTypesDisplay], got '$contentType'. The server is likely returning an HTML fallback for a Flutter static asset."
+    }
+}
+
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $androidKeystorePropertiesPath = Join-Path $projectRoot "android\key.properties"
 $pubspecPath = Join-Path $projectRoot "pubspec.yaml"
+$webBuildWorkaroundScriptPath = Join-Path $PSScriptRoot "prepare_flat_web_build.ps1"
 $serverWebDirNormalized = $ServerWebDir.Trim().TrimEnd("/")
 if ([string]::IsNullOrWhiteSpace($serverWebDirNormalized)) {
     throw "ServerWebDir must not be empty."
@@ -137,6 +176,14 @@ $androidReleaseAssetName = "app-release.apk"
 $versionName = Get-VersionName -PubspecPath $pubspecPath
 $expectedReleaseTag = "v$versionName"
 $webDeployTarget = "${remote}:$serverWebDirDisplay"
+$publicWebBaseUrl = if ([string]::IsNullOrWhiteSpace($PublicHostHeader)) {
+    $null
+} else {
+    "https://$PublicHostHeader/deadline/"
+}
+$webDeployArchiveName = "deadline-web-$versionName.tar.gz"
+$webDeployArchiveLocalPath = Join-Path ([IO.Path]::GetTempPath()) $webDeployArchiveName
+$webDeployArchiveRemotePath = "/tmp/$webDeployArchiveName"
 $androidSigningInfo = if ($SkipAndroidBuild) {
     [PSCustomObject]@{
         Mode = "SKIPPED"
@@ -152,6 +199,11 @@ $failureMessage = $null
 $currentStep = "Initialization"
 $webBuildStatus = "SKIPPED"
 $webDeployStatus = if ($SkipWebDeploy) { "SKIPPED" } else { "PENDING" }
+$webPublicVerifyStatus = if ($SkipWebDeploy -or [string]::IsNullOrWhiteSpace($PublicHostHeader)) {
+    "SKIPPED"
+} else {
+    "PENDING"
+}
 $androidBuildStatus = if ($SkipAndroidBuild) { "SKIPPED" } else { "PENDING" }
 $exitCode = 0
 
@@ -162,6 +214,8 @@ try {
     Require-Command flutter
     if (-not $SkipWebDeploy) {
         Require-Command scp
+        Require-Command ssh
+        Require-Command tar
     }
 
     $currentStep = "Validate dart defines file"
@@ -183,6 +237,11 @@ try {
     Invoke-Step $currentStep {
         Invoke-NativeCommand -FilePath "flutter" -Arguments @("build", "web", "--release", "--base-href", "/deadline/", $defineArg)
     }
+
+    $currentStep = "Prepare web build for flat-host deployment"
+    Invoke-Step $currentStep {
+        & $webBuildWorkaroundScriptPath -WebBuildDir $webBuildPath
+    }
     $webBuildStatus = "OK"
 
     if (-not $SkipWebDeploy) {
@@ -193,12 +252,51 @@ try {
             throw "No web artifacts found in $webBuildSourcePath"
         }
 
-        $currentStep = "Upload web artifacts to $webDeployTarget"
+        $currentStep = "Create web deploy archive"
         Invoke-Step $currentStep {
-            $scpArguments = @("-r") + @($webArtifacts | ForEach-Object { $_.FullName }) + @($webDeployTarget)
-            Invoke-NativeCommand -FilePath "scp" -Arguments $scpArguments
+            if (Test-Path $webDeployArchiveLocalPath) {
+                Remove-Item -LiteralPath $webDeployArchiveLocalPath -Force
+            }
+            Invoke-NativeCommand -FilePath "tar" -Arguments @(
+                "-czf",
+                $webDeployArchiveLocalPath,
+                "-C",
+                $webBuildSourcePath,
+                "."
+            )
+        }
+
+        $currentStep = "Upload web deploy archive to ${remote}:$webDeployArchiveRemotePath"
+        Invoke-Step $currentStep {
+            Invoke-NativeCommand -FilePath "scp" -Arguments @(
+                $webDeployArchiveLocalPath,
+                "${remote}:$webDeployArchiveRemotePath"
+            )
+        }
+
+        $currentStep = "Extract web deploy archive on server"
+        Invoke-Step $currentStep {
+            $quotedRemoteArchivePath = Convert-ToPosixSingleQuotedString -Value $webDeployArchiveRemotePath
+            $quotedServerWebDir = Convert-ToPosixSingleQuotedString -Value $serverWebDirNormalized
+            $remoteCommand = @(
+                "mkdir -p $quotedServerWebDir"
+                "tar -xzf $quotedRemoteArchivePath -C $quotedServerWebDir"
+                "rm -f $quotedRemoteArchivePath"
+            ) -join " && "
+            Invoke-NativeCommand -FilePath "ssh" -Arguments @($remote, $remoteCommand)
         }
         $webDeployStatus = "OK"
+
+        if ($publicWebBaseUrl) {
+            $currentStep = "Verify public web assets"
+            Invoke-Step $currentStep {
+                Assert-PublicWebAsset -Url $publicWebBaseUrl -ExpectedContentTypeHints @("text/html")
+                Assert-PublicWebAsset -Url ($publicWebBaseUrl + "main.dart.js") -ExpectedContentTypeHints @("javascript")
+                Assert-PublicWebAsset -Url ($publicWebBaseUrl + "__flat__assets__AssetManifest.bin.json") -ExpectedContentTypeHints @("json")
+                Assert-PublicWebAsset -Url ($publicWebBaseUrl + "canvaskit.js") -ExpectedContentTypeHints @("javascript")
+            }
+            $webPublicVerifyStatus = "OK"
+        }
     }
 
     if (-not $SkipAndroidBuild) {
@@ -218,10 +316,17 @@ try {
     $exitCode = 1
 }
 
+if (Test-Path $webDeployArchiveLocalPath) {
+    Remove-Item -LiteralPath $webDeployArchiveLocalPath -Force
+}
+
 Write-Output ""
 Write-Output "Result: $result"
 Write-Output "Web build: $webBuildStatus -> $webBuildPath"
 Write-Output "Web deploy: $webDeployStatus -> $webDeployTarget"
+if ($publicWebBaseUrl) {
+    Write-Output "Web public verify: $webPublicVerifyStatus -> $publicWebBaseUrl"
+}
 Write-Output "Android build: $androidBuildStatus -> $androidApkPath"
 Write-Output "Android versionName: $versionName"
 Write-Output "Android signing: $($androidSigningInfo.Mode)"
