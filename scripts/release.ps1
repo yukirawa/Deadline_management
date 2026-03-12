@@ -57,7 +57,7 @@ function Get-AndroidSigningInfo {
     if (-not (Test-Path $Path)) {
         return [PSCustomObject]@{
             Mode = "DEBUG"
-            Warning = "android/key.properties was not found. Android release build will use debug signing."
+            Warning = "android/key.properties was not found. Android release builds require the production keystore."
         }
     }
 
@@ -80,7 +80,7 @@ function Get-AndroidSigningInfo {
     if ($missingKeys.Count -gt 0) {
         return [PSCustomObject]@{
             Mode = "DEBUG"
-            Warning = "android/key.properties is missing required values ($($missingKeys -join ', ')). Android release build will use debug signing."
+            Warning = "android/key.properties is missing required values ($($missingKeys -join ', ')). Android release builds require the production keystore."
         }
     }
 
@@ -226,6 +226,13 @@ try {
     $currentStep = "Validate release tag"
     Confirm-ReleaseTag -ExpectedReleaseTag $expectedReleaseTag -ReleaseTag $ReleaseTag
 
+    if (-not $SkipAndroidBuild) {
+        $currentStep = "Validate Android release signing"
+        if ($androidSigningInfo.Mode -ne "RELEASE") {
+            throw "$($androidSigningInfo.Warning) Create android/key.properties from android/key.properties.example and point it to the same release keystore used by the installed app."
+        }
+    }
+
     $defineArg = "--dart-define-from-file=$DartDefinesFile"
 
     $currentStep = "flutter pub get"
@@ -302,9 +309,6 @@ try {
     if (-not $SkipAndroidBuild) {
         $currentStep = "Build Android APK release"
         Invoke-Step $currentStep {
-            if ($androidSigningInfo.Warning) {
-                Write-Warning $androidSigningInfo.Warning
-            }
             Invoke-NativeCommand -FilePath "flutter" -Arguments @("build", "apk", "--release", $defineArg)
         }
         $androidBuildStatus = "OK"

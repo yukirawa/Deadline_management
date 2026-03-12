@@ -6,6 +6,7 @@
 - GitHub Release の tag は必ず `v<versionName>` にする
 - Android の配布 asset 名は必ず `app-release.apk` にする
 - 毎回同じ production keystore で署名する
+- `scripts/release.ps1` と Gradle は `android/key.properties` が無い、または不完全な状態では release build を失敗させる
 
 ## Versioning Policy
 
@@ -34,6 +35,12 @@
 2. 生成物は `build/app/outputs/flutter-apk/app-release.apk`
 3. スクリプトの出力に表示される expected tag が `v<versionName>` になっていることを確認する
 4. GitHub で公開する tag が決まっている場合は `pwsh ./scripts/release.ps1 -SkipWebDeploy -ReleaseTag v<versionName>` を使って、`pubspec.yaml` と不一致がないことを確認する
+5. signing 関連のエラーで build が止まった場合は公開しない。`android/key.properties` を修正し、インストール済みアプリと同じ release keystore を使って再ビルドする
+
+## Release Signing Safety
+
+- OTA updates only work when every published APK is signed with the same production keystore as the installed app.
+- A debug-signed APK can download successfully but Android will reject it during update as an invalid package.
 
 ## GitHub Releases
 

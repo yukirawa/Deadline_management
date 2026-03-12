@@ -20,6 +20,16 @@ val hasReleaseKeystore =
     listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
         .all { !keystoreProperties.getProperty(it).isNullOrBlank() }
 
+val isReleaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true)
+}
+
+if (isReleaseBuildRequested && !hasReleaseKeystore) {
+    throw GradleException(
+        "Release builds require android/key.properties with storeFile, storePassword, keyAlias, and keyPassword."
+    )
+}
+
 android {
     namespace = "jp.yukirawa.kigenkanri"
     compileSdk = flutter.compileSdkVersion
@@ -58,13 +68,7 @@ android {
 
     buildTypes {
         release {
-            // Use release keystore when provided, otherwise keep debug signing
-            // for local/internal testing.
-            signingConfig = if (hasReleaseKeystore) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
