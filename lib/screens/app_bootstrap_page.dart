@@ -77,7 +77,49 @@ class _AppBootstrapPageState extends State<AppBootstrapPage>
       return;
     }
 
+    if (_requiresManualReinstall(updateInfo)) {
+      await _showManualReinstallPrompt(updateInfo);
+      return;
+    }
+
     await _showUpdatePrompt(updateInfo);
+  }
+
+  bool _requiresManualReinstall(AppUpdateInfo updateInfo) {
+    return updateInfo.currentVersion.compareTo(_manualReinstallCutoffVersion) <
+        0;
+  }
+
+  Future<void> _showManualReinstallPrompt(AppUpdateInfo updateInfo) async {
+    if (!mounted || _isUpdateDialogVisible) {
+      return;
+    }
+
+    _isUpdateDialogVisible = true;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('手動更新が必要です'),
+          content: Text(
+            'このアプリは 2026-03-12 より前の署名でインストールされているため、'
+            '今回の更新はアプリ内アップデートでは適用できません。\n\n'
+            'GitHub Releases から最新版 APK をダウンロードして'
+            '一度だけ手動で再インストールしてください。\n\n'
+            '配布ページ:\n${updateInfo.releasePageUrl}',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        );
+      },
+    );
+    _isUpdateDialogVisible = false;
+    _sessionDismissed = true;
   }
 
   Future<void> _showUpdatePrompt(AppUpdateInfo updateInfo) async {
@@ -253,3 +295,7 @@ class _AppBootstrapPageState extends State<AppBootstrapPage>
 }
 
 enum _UpdateAction { later, updateNow }
+
+final SemanticVersion _manualReinstallCutoffVersion = SemanticVersion.parse(
+  '1.2.2',
+);

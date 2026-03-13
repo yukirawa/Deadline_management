@@ -9,18 +9,25 @@ import 'package:kigenkanri/services/android_apk_installer.dart';
 import 'package:kigenkanri/services/app_update_service.dart';
 
 void main() {
-  AppUpdateInfo buildUpdateInfo() {
+  AppUpdateInfo buildUpdateInfoWithVersions({
+    required String current,
+    required String latest,
+  }) {
     return AppUpdateInfo(
-      currentVersion: SemanticVersion.parse('1.1.0'),
-      latestVersion: SemanticVersion.parse('1.1.1'),
-      releaseTag: 'v1.1.1',
+      currentVersion: SemanticVersion.parse(current),
+      latestVersion: SemanticVersion.parse(latest),
+      releaseTag: 'v$latest',
       releasePageUrl: Uri.parse(
-        'https://github.com/yukirawa/Deadline_management/releases/tag/v1.1.1',
+        'https://github.com/yukirawa/Deadline_management/releases/tag/v$latest',
       ),
       apkUrl: Uri.parse(
         'https://github.com/yukirawa/Deadline_management/releases/latest/download/app-release.apk',
       ),
     );
+  }
+
+  AppUpdateInfo buildUpdateInfo() {
+    return buildUpdateInfoWithVersions(current: '1.2.2', latest: '1.2.3');
   }
 
   Widget buildSubject({
@@ -84,6 +91,29 @@ void main() {
 
     expect(find.text('アップデートを準備しています'), findsOneWidget);
     expect(find.textContaining('25%'), findsOneWidget);
+  });
+
+  testWidgets('legacy signed installs show a manual reinstall prompt', (
+    WidgetTester tester,
+  ) async {
+    final service = FakeAppUpdateService(
+      updateInfo: buildUpdateInfoWithVersions(
+        current: '1.2.1',
+        latest: '1.2.3',
+      ),
+    );
+    final installer = FakeAndroidApkInstaller();
+
+    await tester.pumpWidget(
+      buildSubject(appUpdateService: service, apkInstaller: installer),
+    );
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('手動更新が必要です'), findsOneWidget);
+    expect(find.textContaining('GitHub Releases'), findsOneWidget);
+    expect(find.textContaining('v1.2.3'), findsOneWidget);
+    expect(installer.installedPaths, isEmpty);
   });
 
   testWidgets('update check failures do not block normal startup', (

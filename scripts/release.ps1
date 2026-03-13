@@ -14,150 +14,15 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-function Require-Command {
-    param([Parameter(Mandatory = $true)][string]$Name)
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "Required command '$Name' not found."
-    }
-}
-
-function Invoke-Step {
-    param(
-        [Parameter(Mandatory = $true)][string]$Name,
-        [Parameter(Mandatory = $true)][scriptblock]$Action
-    )
-    Write-Host ""
-    Write-Host "==> $Name" -ForegroundColor Cyan
-    & $Action
-}
-
-function Invoke-NativeCommand {
-    param(
-        [Parameter(Mandatory = $true)][string]$FilePath,
-        [string[]]$Arguments = @()
-    )
-
-    & $FilePath @Arguments
-    $nativeExitCode = $LASTEXITCODE
-    if ($nativeExitCode -ne 0) {
-        $joinedArguments = if ($Arguments.Count -gt 0) {
-            $Arguments -join " "
-        } else {
-            ""
-        }
-        throw "Command failed with exit code ${nativeExitCode}: $FilePath $joinedArguments".TrimEnd()
-    }
-}
-
-function Get-AndroidSigningInfo {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $requiredKeys = @("storeFile", "storePassword", "keyAlias", "keyPassword")
-
-    if (-not (Test-Path $Path)) {
-        return [PSCustomObject]@{
-            Mode = "DEBUG"
-            Warning = "android/key.properties was not found. Android release builds require the production keystore."
-        }
-    }
-
-    $properties = @{}
-    foreach ($line in Get-Content $Path) {
-        if ([string]::IsNullOrWhiteSpace($line) -or $line.TrimStart().StartsWith("#")) {
-            continue
-        }
-        $parts = $line -split "=", 2
-        if ($parts.Count -ne 2) {
-            continue
-        }
-        $properties[$parts[0].Trim()] = $parts[1].Trim()
-    }
-
-    $missingKeys = $requiredKeys | Where-Object {
-        -not $properties.ContainsKey($_) -or [string]::IsNullOrWhiteSpace($properties[$_])
-    }
-
-    if ($missingKeys.Count -gt 0) {
-        return [PSCustomObject]@{
-            Mode = "DEBUG"
-            Warning = "android/key.properties is missing required values ($($missingKeys -join ', ')). Android release builds require the production keystore."
-        }
-    }
-
-    return [PSCustomObject]@{
-        Mode = "RELEASE"
-        Warning = $null
-    }
-}
-
-function Get-VersionName {
-    param([Parameter(Mandatory = $true)][string]$PubspecPath)
-
-    $pubspec = Get-Content $PubspecPath -Raw
-    if ($pubspec -match '(?m)^version:\s*([0-9]+\.[0-9]+\.[0-9]+)(?:\+\d+)?\s*$') {
-        return $matches[1]
-    }
-
-    throw "Could not parse versionName from $PubspecPath"
-}
-
-function Confirm-ReleaseTag {
-    param(
-        [Parameter(Mandatory = $true)][string]$ExpectedReleaseTag,
-        [string]$ReleaseTag = ""
-    )
-
-    if ([string]::IsNullOrWhiteSpace($ReleaseTag)) {
-        return
-    }
-
-    if ($ReleaseTag.Trim() -ne $ExpectedReleaseTag) {
-        throw "ReleaseTag '$ReleaseTag' does not match pubspec versionName. Expected '$ExpectedReleaseTag'. Update pubspec.yaml before building."
-    }
-}
-
-function Convert-ToPosixSingleQuotedString {
-    param([Parameter(Mandatory = $true)][string]$Value)
-
-    return "'" + $Value + "'"
-}
-
-function Assert-PublicWebAsset {
-    param(
-        [Parameter(Mandatory = $true)][string]$Url,
-        [Parameter(Mandatory = $true)][string[]]$ExpectedContentTypeHints
-    )
-
-    try {
-        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -Method Head
-    } catch {
-        throw "Public asset check failed for '$Url': $($_.Exception.Message)"
-    }
-
-    $contentType = [string]$response.Headers["Content-Type"]
-    if ([string]::IsNullOrWhiteSpace($contentType)) {
-        throw "Public asset check failed for '$Url': response did not include a Content-Type header."
-    }
-
-    $normalizedContentType = $contentType.ToLowerInvariant()
-    $matchesExpectedType = $false
-    foreach ($hint in $ExpectedContentTypeHints) {
-        if ($normalizedContentType.Contains($hint.ToLowerInvariant())) {
-            $matchesExpectedType = $true
-            break
-        }
-    }
-
-    if (-not $matchesExpectedType) {
-        $expectedTypesDisplay = $ExpectedContentTypeHints -join ", "
-        throw "Public asset check failed for '$Url': expected Content-Type containing one of [$expectedTypesDisplay], got '$contentType'. The server is likely returning an HTML fallback for a Flutter static asset."
-    }
-}
+. (Join-Path $PSScriptRoot "release_common.ps1")
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $androidKeystorePropertiesPath = Join-Path $projectRoot "android\key.properties"
+$googleServicesJsonPath = Join-Path $projectRoot "android\app\google-services.json"
 $pubspecPath = Join-Path $projectRoot "pubspec.yaml"
 $webBuildWorkaroundScriptPath = Join-Path $PSScriptRoot "prepare_flat_web_build.ps1"
+$androidApplicationId = "jp.yukirawa.kigenkanri"
+$androidVersionInfo = Get-AndroidVersionInfo -PubspecPath $pubspecPath
 $serverWebDirNormalized = $ServerWebDir.Trim().TrimEnd("/")
 if ([string]::IsNullOrWhiteSpace($serverWebDirNormalized)) {
     throw "ServerWebDir must not be empty."
@@ -173,7 +38,8 @@ $remote = "$ServerUser@$ServerHost"
 $webBuildPath = "build/web"
 $androidApkPath = "build/app/outputs/flutter-apk/app-release.apk"
 $androidReleaseAssetName = "app-release.apk"
-$versionName = Get-VersionName -PubspecPath $pubspecPath
+$versionName = $androidVersionInfo.VersionName
+$versionCode = $androidVersionInfo.VersionCode
 $expectedReleaseTag = "v$versionName"
 $webDeployTarget = "${remote}:$serverWebDirDisplay"
 $publicWebBaseUrl = if ([string]::IsNullOrWhiteSpace($PublicHostHeader)) {
@@ -184,6 +50,7 @@ $publicWebBaseUrl = if ([string]::IsNullOrWhiteSpace($PublicHostHeader)) {
 $webDeployArchiveName = "deadline-web-$versionName.tar.gz"
 $webDeployArchiveLocalPath = Join-Path ([IO.Path]::GetTempPath()) $webDeployArchiveName
 $webDeployArchiveRemotePath = "/tmp/$webDeployArchiveName"
+$releaseCertificateHashes = $null
 $androidSigningInfo = if ($SkipAndroidBuild) {
     [PSCustomObject]@{
         Mode = "SKIPPED"
@@ -231,6 +98,19 @@ try {
         if ($androidSigningInfo.Mode -ne "RELEASE") {
             throw "$($androidSigningInfo.Warning) Create android/key.properties from android/key.properties.example and point it to the same release keystore used by the installed app."
         }
+
+        $currentStep = "Read Android release certificate hashes"
+        $releaseCertificateHashes = Get-KeystoreCertificateHashes `
+            -StoreFilePath $androidSigningInfo.StoreFilePath `
+            -StorePassword $androidSigningInfo.StorePassword `
+            -KeyAlias $androidSigningInfo.KeyAlias `
+            -KeyPassword $androidSigningInfo.KeyPassword
+
+        $currentStep = "Validate Firebase Android fingerprints"
+        Assert-ReleaseCertificateRegistered `
+            -GoogleServicesJsonPath $googleServicesJsonPath `
+            -PackageName $androidApplicationId `
+            -ReleaseCertificateSha1 $releaseCertificateHashes.SHA1
     }
 
     $defineArg = "--dart-define-from-file=$DartDefinesFile"
@@ -311,6 +191,12 @@ try {
         Invoke-Step $currentStep {
             Invoke-NativeCommand -FilePath "flutter" -Arguments @("build", "apk", "--release", $defineArg)
         }
+
+        $currentStep = "Validate built Android APK signer"
+        $apkCertificateHashes = Get-ApkCertificateHashes -ApkPath (Join-Path $projectRoot $androidApkPath)
+        if ($apkCertificateHashes.SHA1 -ne $releaseCertificateHashes.SHA1) {
+            throw "Built APK signer SHA-1 '$($apkCertificateHashes.SHA1)' does not match the production keystore SHA-1 '$($releaseCertificateHashes.SHA1)'. Do not publish this APK."
+        }
         $androidBuildStatus = "OK"
     }
 } catch {
@@ -329,11 +215,15 @@ Write-Output "Result: $result"
 Write-Output "Web build: $webBuildStatus -> $webBuildPath"
 Write-Output "Web deploy: $webDeployStatus -> $webDeployTarget"
 if ($publicWebBaseUrl) {
-    Write-Output "Web public verify: $webPublicVerifyStatus -> $publicWebBaseUrl"
+Write-Output "Web public verify: $webPublicVerifyStatus -> $publicWebBaseUrl"
 }
 Write-Output "Android build: $androidBuildStatus -> $androidApkPath"
 Write-Output "Android versionName: $versionName"
+Write-Output "Android versionCode: $versionCode"
 Write-Output "Android signing: $($androidSigningInfo.Mode)"
+if ($releaseCertificateHashes) {
+    Write-Output "Android release SHA-1: $($releaseCertificateHashes.SHA1)"
+}
 Write-Output "Expected Android release tag: $expectedReleaseTag"
 Write-Output "Expected Android asset name: $androidReleaseAssetName"
 

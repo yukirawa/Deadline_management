@@ -27,7 +27,7 @@ class _SignInPageState extends State<SignInPage> {
         return;
       }
       setState(() {
-        _errorMessage = 'ログインに失敗しました: $error';
+        _errorMessage = widget.authService.describeSignInError(error);
       });
     } finally {
       if (mounted) {

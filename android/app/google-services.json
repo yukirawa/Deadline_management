@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "836327247315",
+    "firebase_url": "https://cram-companion-9o3zs-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "cram-companion-9o3zs",
     "storage_bucket": "cram-companion-9o3zs.firebasestorage.app"
   },
@@ -14,11 +15,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "836327247315-lsgscrc3mifrdnvtqfe3iaauigubkqmi.apps.googleusercontent.com",
+          "client_id": "836327247315-9ee2lvr41kgkslbqtjd4bei1avgmli5l.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "jp.yukirawa.kigenkanri",
-            "certificate_hash": "11448711bcb8368887aa969e61a67c2beaa174a6"
+            "certificate_hash": "b21ed33311d34d0777e97b467ba7528878946f13"
           }
         },
         {
