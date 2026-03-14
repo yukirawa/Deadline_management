@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:kigenkanri/models/task.dart';
 import 'package:kigenkanri/models/task_type.dart';
@@ -197,6 +198,9 @@ class _TaskHomePageState extends State<TaskHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktopWeb =
+        kIsWeb && MediaQuery.sizeOf(context).width >= 1024;
+
     return FutureBuilder<void>(
       future: _prepareFuture,
       builder: (context, snapshot) {
@@ -250,6 +254,82 @@ class _TaskHomePageState extends State<TaskHomePage> {
               doneFilter: _doneFilter,
             );
 
+            final tabContent = IndexedStack(
+              index: _tabIndex,
+              children: [
+                _TaskListTab(
+                  queryController: _queryController,
+                  selectedType: _typeFilter,
+                  doneFilter: _doneFilter,
+                  onTypeChanged: (value) {
+                    setState(() {
+                      _typeFilter = value;
+                    });
+                  },
+                  onDoneFilterChanged: (value) {
+                    setState(() {
+                      _doneFilter = value;
+                    });
+                  },
+                  tasks: filteredTasks,
+                  onDoneChanged: _toggleDone,
+                  onEdit: (task) => _openTaskForm(task: task),
+                  onDelete: _softDelete,
+                ),
+                _TrashTab(
+                  tasks: deletedTasks,
+                  onRestore: _restore,
+                  onHardDelete: _hardDelete,
+                ),
+                _SettingsTab(
+                  user: widget.user,
+                  taskRepository: widget.taskRepository,
+                  notificationService: widget.notificationService,
+                  authService: widget.authService,
+                  onError: _showError,
+                ),
+              ],
+            );
+
+            if (!isDesktopWeb) {
+              return Scaffold(
+                appBar: AppBar(
+                  title: Text(_titleForTab),
+                  actions: [
+                    if (_tabIndex == 0)
+                      IconButton(
+                        onPressed: () => _openTaskForm(),
+                        icon: const Icon(Icons.add),
+                        tooltip: '追加',
+                      ),
+                  ],
+                ),
+                body: tabContent,
+                bottomNavigationBar: NavigationBar(
+                  selectedIndex: _tabIndex,
+                  onDestinationSelected: (index) {
+                    setState(() {
+                      _tabIndex = index;
+                    });
+                  },
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.list_alt),
+                      label: 'タスク',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.delete_outline),
+                      label: 'ゴミ箱',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.settings),
+                      label: '設定',
+                    ),
+                  ],
+                ),
+              );
+            }
+
             return Scaffold(
               appBar: AppBar(
                 title: Text(_titleForTab),
@@ -262,61 +342,39 @@ class _TaskHomePageState extends State<TaskHomePage> {
                     ),
                 ],
               ),
-              body: IndexedStack(
-                index: _tabIndex,
+              body: Row(
                 children: [
-                  _TaskListTab(
-                    queryController: _queryController,
-                    selectedType: _typeFilter,
-                    doneFilter: _doneFilter,
-                    onTypeChanged: (value) {
+                  NavigationRail(
+                    selectedIndex: _tabIndex,
+                    onDestinationSelected: (index) {
                       setState(() {
-                        _typeFilter = value;
+                        _tabIndex = index;
                       });
                     },
-                    onDoneFilterChanged: (value) {
-                      setState(() {
-                        _doneFilter = value;
-                      });
-                    },
-                    tasks: filteredTasks,
-                    onDoneChanged: _toggleDone,
-                    onEdit: (task) => _openTaskForm(task: task),
-                    onDelete: _softDelete,
+                    labelType: NavigationRailLabelType.all,
+                    destinations: const [
+                      NavigationRailDestination(
+                        icon: Icon(Icons.list_alt),
+                        label: Text('タスク'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.delete_outline),
+                        label: Text('ゴミ箱'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.settings),
+                        label: Text('設定'),
+                      ),
+                    ],
                   ),
-                  _TrashTab(
-                    tasks: deletedTasks,
-                    onRestore: _restore,
-                    onHardDelete: _hardDelete,
-                  ),
-                  _SettingsTab(
-                    user: widget.user,
-                    taskRepository: widget.taskRepository,
-                    notificationService: widget.notificationService,
-                    authService: widget.authService,
-                    onError: _showError,
-                  ),
-                ],
-              ),
-              bottomNavigationBar: NavigationBar(
-                selectedIndex: _tabIndex,
-                onDestinationSelected: (index) {
-                  setState(() {
-                    _tabIndex = index;
-                  });
-                },
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.list_alt),
-                    label: 'タスク',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.delete_outline),
-                    label: 'ゴミ箱',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.settings),
-                    label: '設定',
+                  const VerticalDivider(width: 1),
+                  Expanded(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1040),
+                        child: tabContent,
+                      ),
+                    ),
                   ),
                 ],
               ),
