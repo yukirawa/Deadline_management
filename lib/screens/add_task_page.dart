@@ -29,6 +29,7 @@ class TaskFormPage extends StatefulWidget {
 }
 
 class _TaskFormPageState extends State<TaskFormPage> {
+  static const double _desktopBreakpoint = 1024;
   final _formKey = GlobalKey<FormState>();
   final _subjectController = TextEditingController();
   final _titleController = TextEditingController();
@@ -123,133 +124,336 @@ class _TaskFormPageState extends State<TaskFormPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.sizeOf(context).width >= _desktopBreakpoint;
+
+    if (!isDesktop) {
+      return Scaffold(
+        appBar: AppBar(title: Text(_isEdit ? 'タスク編集' : 'タスク追加')),
+        body: SafeArea(
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                TextFormField(
+                  controller: _subjectController,
+                  decoration: const InputDecoration(
+                    labelText: '科目',
+                    hintText: '例: 数学',
+                    border: OutlineInputBorder(),
+                  ),
+                  textInputAction: TextInputAction.next,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '科目を入力してください';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<TaskType>(
+                  initialValue: _selectedType,
+                  decoration: const InputDecoration(
+                    labelText: '種別',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: TaskType.values
+                      .map(
+                        (type) => DropdownMenuItem<TaskType>(
+                          value: type,
+                          child: Text(type.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _selectedType = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    labelText: '内容',
+                    hintText: '例: ワーク p.12-15',
+                    border: OutlineInputBorder(),
+                  ),
+                  minLines: 1,
+                  maxLines: 2,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '内容を入力してください';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                _buildDateField(),
+                const SizedBox(height: 12),
+                _buildTimeField(),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('キャンセル'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _submit,
+                        child: Text(_isEdit ? '更新' : '保存'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(title: Text(_isEdit ? 'タスク編集' : 'タスク追加')),
       body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              TextFormField(
-                controller: _subjectController,
-                decoration: const InputDecoration(
-                  labelText: '科目',
-                  hintText: '例: 数学',
-                  border: OutlineInputBorder(),
-                ),
-                textInputAction: TextInputAction.next,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return '科目を入力してください';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<TaskType>(
-                initialValue: _selectedType,
-                decoration: const InputDecoration(
-                  labelText: '種別',
-                  border: OutlineInputBorder(),
-                ),
-                items: TaskType.values
-                    .map(
-                      (type) => DropdownMenuItem<TaskType>(
-                        value: type,
-                        child: Text(type.label),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isDesktop ? 880 : double.infinity),
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                padding: EdgeInsets.all(isDesktop ? 24 : 16),
+                children: [
+                  Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(isDesktop ? 24 : 16),
+                      child: Column(
+                        children: [
+                          if (isDesktop) ...[
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _subjectController,
+                                    decoration: const InputDecoration(
+                                      labelText: '科目',
+                                      hintText: '例: 数学',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    textInputAction: TextInputAction.next,
+                                    validator: (value) {
+                                      if (value == null || value.trim().isEmpty) {
+                                        return '科目を入力してください';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: DropdownButtonFormField<TaskType>(
+                                    initialValue: _selectedType,
+                                    decoration: const InputDecoration(
+                                      labelText: '種別',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    items: TaskType.values
+                                        .map(
+                                          (type) => DropdownMenuItem<TaskType>(
+                                            value: type,
+                                            child: Text(type.label),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (value) {
+                                      if (value == null) {
+                                        return;
+                                      }
+                                      setState(() {
+                                        _selectedType = value;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ] else ...[
+                            TextFormField(
+                              controller: _subjectController,
+                              decoration: const InputDecoration(
+                                labelText: '科目',
+                                hintText: '例: 数学',
+                                border: OutlineInputBorder(),
+                              ),
+                              textInputAction: TextInputAction.next,
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return '科目を入力してください';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<TaskType>(
+                              initialValue: _selectedType,
+                              decoration: const InputDecoration(
+                                labelText: '種別',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: TaskType.values
+                                  .map(
+                                    (type) => DropdownMenuItem<TaskType>(
+                                      value: type,
+                                      child: Text(type.label),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) {
+                                if (value == null) {
+                                  return;
+                                }
+                                setState(() {
+                                  _selectedType = value;
+                                });
+                              },
+                            ),
+                          ],
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _titleController,
+                            decoration: const InputDecoration(
+                              labelText: '内容',
+                              hintText: '例: ワーク p.12-15',
+                              border: OutlineInputBorder(),
+                            ),
+                            minLines: isDesktop ? 2 : 1,
+                            maxLines: isDesktop ? 3 : 2,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return '内容を入力してください';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          if (isDesktop)
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: _buildDateField()),
+                                const SizedBox(width: 16),
+                                Expanded(child: _buildTimeField()),
+                              ],
+                            )
+                          else ...[
+                            _buildDateField(),
+                            const SizedBox(height: 12),
+                            _buildTimeField(),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  if (isDesktop)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        alignment: WrapAlignment.end,
+                        children: [
+                          SizedBox(
+                            width: 140,
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('キャンセル'),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 160,
+                            child: FilledButton(
+                              onPressed: _submit,
+                              child: Text(_isEdit ? '更新' : '保存'),
+                            ),
+                          ),
+                        ],
                       ),
                     )
-                    .toList(),
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-                  setState(() {
-                    _selectedType = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(
-                  labelText: '内容',
-                  hintText: '例: ワーク p.12-15',
-                  border: OutlineInputBorder(),
-                ),
-                minLines: 1,
-                maxLines: 2,
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return '内容を入力してください';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              InputDecorator(
-                decoration: InputDecoration(
-                  labelText: '締切日',
-                  border: const OutlineInputBorder(),
-                  errorText: _showDateError ? '締切日を選択してください' : null,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _selectedDate == null
-                            ? '未選択'
-                            : formatDisplayDate(
-                                formatStorageDate(_selectedDate!),
-                              ),
-                      ),
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('キャンセル'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _submit,
+                            child: Text(_isEdit ? '更新' : '保存'),
+                          ),
+                        ),
+                      ],
                     ),
-                    TextButton(
-                      onPressed: _selectDate,
-                      child: const Text('日付を選択'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              InputDecorator(
-                decoration: const InputDecoration(
-                  labelText: '締切時刻',
-                  border: OutlineInputBorder(),
-                  helperText: '任意。15分単位で設定できます',
-                ),
-                child: Row(
-                  children: [
-                    Expanded(child: Text(dueTimeLabel(_selectedTime))),
-                    TextButton(
-                      onPressed: _selectTime,
-                      child: const Text('時刻を設定'),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('キャンセル'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _submit,
-                      child: Text(_isEdit ? '更新' : '保存'),
-                    ),
-                  ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDateField() {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: '締切日',
+        border: const OutlineInputBorder(),
+        errorText: _showDateError ? '締切日を選択してください' : null,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _selectedDate == null
+                  ? '未選択'
+                  : formatDisplayDate(formatStorageDate(_selectedDate!)),
+            ),
+          ),
+          TextButton(
+            onPressed: _selectDate,
+            child: const Text('日付を選択'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeField() {
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: '締切時刻',
+        border: OutlineInputBorder(),
+        helperText: '任意。15分単位で設定できます',
+      ),
+      child: Row(
+        children: [
+          Expanded(child: Text(dueTimeLabel(_selectedTime))),
+          TextButton(
+            onPressed: _selectTime,
+            child: const Text('時刻を設定'),
+          ),
+        ],
       ),
     );
   }
